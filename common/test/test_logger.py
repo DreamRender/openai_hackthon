@@ -5,21 +5,21 @@ from common.utils.logger import get_logger
 
 
 class TestLoggerPrint(unittest.TestCase):
-    """测试日志记录器功能 - 重点是能否正常打印日志"""
+    """Test logger functionality - focus on whether logs can be printed normally"""
 
     @classmethod
     def setUpClass(cls):
-        """在所有测试之前设置环境"""
-        # 确保ENV设置为local，以便加载.env和.env.local
+        """Set up environment before all tests"""
+        # Ensure ENV is set to local to load .env and .env.local
         os.environ['ENV'] = 'local'
 
     def test_logger_basic_functionality(self):
-        """测试日志记录器基本功能 - 能否正常打印不同级别的日志"""
+        """Test basic logger functionality - whether logs of different levels can be printed normally"""
         print("\n" + "="*80)
-        print("日志记录器测试 - 基本功能")
+        print("Logger Test - Basic Functionality")
         print("="*80)
         
-        # 创建几个不同名称的logger
+        # Create several loggers with different names
         loggers = [
             ('app_logger', get_logger('app')),
             ('service_logger', get_logger('service')),
@@ -27,55 +27,55 @@ class TestLoggerPrint(unittest.TestCase):
         ]
         
         for logger_name, logger in loggers:
-            print(f"\n✓ 测试 {logger_name}:")
-            print(f"  Logger名称: {logger.name}")
-            print(f"  Logger级别: {logger.level}")
-            print(f"  Handler数量: {len(logger.handlers)}")
-            print(f"  传播设置: {logger.propagate}")
+            print(f"\n✓ Testing {logger_name}:")
+            print(f"  Logger Name: {logger.name}")
+            print(f"  Logger Level: {logger.level}")
+            print(f"  Handler Count: {len(logger.handlers)}")
+            print(f"  Propagate Setting: {logger.propagate}")
             
-            # 测试不同级别的日志输出
-            print(f"  日志输出测试:")
-            logger.debug(f"这是来自 {logger_name} 的调试信息")
-            logger.info(f"这是来自 {logger_name} 的信息日志")
-            logger.warning(f"这是来自 {logger_name} 的警告日志")
-            logger.error(f"这是来自 {logger_name} 的错误日志")
-            logger.critical(f"这是来自 {logger_name} 的严重错误日志")
+            # Test log output of different levels
+            print(f"  Log Output Test:")
+            logger.debug(f"This is debug information from {logger_name}")
+            logger.info(f"This is info log from {logger_name}")
+            logger.warning(f"This is warning log from {logger_name}")
+            logger.error(f"This is error log from {logger_name}")
+            logger.critical(f"This is critical error log from {logger_name}")
         
         print("\n" + "="*80)
-        print("基本功能测试完成")
+        print("Basic Functionality Test Completed")
         print("="*80)
 
     def test_logger_duplicate_prevention(self):
-        """测试重复创建相同名称的logger不会重复添加handler"""
+        """Test that creating duplicate loggers with the same name will not add handlers repeatedly"""
         print("\n" + "="*80)
-        print("日志记录器测试 - 重复创建防护")
+        print("Logger Test - Duplicate Creation Prevention")
         print("="*80)
         
-        # 创建相同名称的logger多次
+        # Create logger with same name multiple times
         logger1 = get_logger('duplicate_test')
         logger2 = get_logger('duplicate_test')
         logger3 = get_logger('duplicate_test')
         
-        print(f"✓ 创建了3次名为 'duplicate_test' 的logger")
-        print(f"  是否为同一实例: {logger1 is logger2 and logger2 is logger3}")
-        print(f"  Handler数量: {len(logger1.handlers)}")
-        print(f"  测试日志输出:")
+        print(f"✓ Created logger named 'duplicate_test' 3 times")
+        print(f"  Are they the same instance: {logger1 is logger2 and logger2 is logger3}")
+        print(f"  Handler Count: {len(logger1.handlers)}")
+        print(f"  Test Log Output:")
         
-        logger1.info("第一个logger的消息")
-        logger2.warning("第二个logger的消息")
-        logger3.error("第三个logger的消息")
+        logger1.info("Message from first logger")
+        logger2.warning("Message from second logger")
+        logger3.error("Message from third logger")
         
         print("\n" + "="*80)
-        print("重复创建防护测试完成")
+        print("Duplicate Creation Prevention Test Completed")
         print("="*80)
 
     def test_logger_with_different_names(self):
-        """测试创建不同名称的logger"""
+        """Test creating loggers with different names"""
         print("\n" + "="*80)
-        print("日志记录器测试 - 不同名称的logger")
+        print("Logger Test - Loggers with Different Names")
         print("="*80)
         
-        # 创建不同名称的logger
+        # Create loggers with different names
         logger_configs = [
             ('database', 'debug'),
             ('api', 'info'),
@@ -86,42 +86,42 @@ class TestLoggerPrint(unittest.TestCase):
         for name, test_level in logger_configs:
             logger = get_logger(name)
             print(f"\n✓ Logger '{name}':")
-            print(f"  名称: {logger.name}")
-            print(f"  配置级别: {logger.level}")
-            print(f"  测试消息 ({test_level}):")
+            print(f"  Name: {logger.name}")
+            print(f"  Configuration Level: {logger.level}")
+            print(f"  Test Message ({test_level}):")
             
-            # 根据测试级别输出相应的日志
+            # Output corresponding log based on test level
             if test_level == 'debug':
-                logger.debug(f"调试消息来自 {name} logger")
+                logger.debug(f"Debug message from {name} logger")
             elif test_level == 'info':
-                logger.info(f"信息消息来自 {name} logger")
+                logger.info(f"Info message from {name} logger")
             elif test_level == 'warning':
-                logger.warning(f"警告消息来自 {name} logger")
+                logger.warning(f"Warning message from {name} logger")
             elif test_level == 'error':
-                logger.error(f"错误消息来自 {name} logger")
+                logger.error(f"Error message from {name} logger")
         
         print("\n" + "="*80)
-        print("不同名称logger测试完成")
+        print("Different Names Logger Test Completed")
         print("="*80)
 
     def test_logger_error_handling(self):
-        """测试日志记录器的异常处理"""
+        """Test exception handling of logger"""
         print("\n" + "="*80)
-        print("日志记录器测试 - 异常处理")
+        print("Logger Test - Exception Handling")
         print("="*80)
         
         logger = get_logger('error_test')
         
-        # 测试记录异常信息
+        # Test logging exception information
         try:
-            # 故意触发一个异常
+            # Intentionally trigger an exception
             _ = 10 / 0
         except ZeroDivisionError as e:
-            print("✓ 捕获到除零异常，测试异常日志记录:")
-            logger.error(f"捕获到异常: {e}")
-            logger.exception("使用exception方法记录异常（包含堆栈跟踪）:")
+            print("✓ Caught division by zero exception, testing exception logging:")
+            logger.error(f"Caught exception: {e}")
+            logger.exception("Using exception method to log exception (including stack trace):")
         
-        # 测试记录复杂对象
+        # Test logging complex objects
         complex_data = {
             'user_id': 12345,
             'action': 'login',
@@ -132,11 +132,11 @@ class TestLoggerPrint(unittest.TestCase):
             }
         }
         
-        print("\n✓ 测试记录复杂数据:")
-        logger.info(f"用户操作记录: {complex_data}")
+        print("\n✓ Test logging complex data:")
+        logger.info(f"User operation record: {complex_data}")
         
         print("\n" + "="*80)
-        print("异常处理测试完成")
+        print("Exception Handling Test Completed")
         print("="*80)
 
 

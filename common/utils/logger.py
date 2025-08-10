@@ -7,18 +7,18 @@ from common.config.config import get_logging_config
 
 def get_logger(name: str):
     """
-    获取一个基于配置的彩色日志记录器
+    Get a color logger based on configuration
 
-    参数:
-        name: 日志记录器名称
+    Args:
+        name: Logger name
 
-    返回:
-        配置好的彩色Logger实例
+    Returns:
+        Configured color Logger instance
     """
-    # 获取日志配置
+    # Get logging configuration
     logging_config = get_logging_config()
 
-    # 从配置中读取级别、格式和日期格式
+    # Read level, format and date format from configuration
     log_level = logging_config.level
     log_format = logging_config.format
     date_format = logging_config.datefmt
@@ -31,24 +31,24 @@ def get_logger(name: str):
     else:
         log_colors = None
 
-    # 创建Logger
+    # Create Logger
     logger = colorlog.getLogger(name)
 
-    # 防止重复添加handler
+    # Prevent duplicate handler addition
     if logger.handlers:
         return logger
 
     if not log_level:
         log_level = 'DEBUG'
-        print(f"警告！日志级别未配置，使用默认值: {log_level}")
+        print(f"Warning! Log level not configured, using default value: {log_level}")
 
-    # 设置日志级别
+    # Set log level
     logger.setLevel(log_level)
 
-    # 创建处理器
+    # Create handler
     handler = colorlog.StreamHandler()
 
-    # 创建格式化器
+    # Create formatter
     formatter = colorlog.ColoredFormatter(
         log_format,
         datefmt=date_format,
@@ -56,13 +56,13 @@ def get_logger(name: str):
         reset=True
     )
 
-    # 设置格式化器
+    # Set formatter
     handler.setFormatter(formatter)
 
-    # 添加处理器
+    # Add handler
     logger.addHandler(handler)
 
-    # 禁止向上传播日志消息到父日志器
+    # Disable propagating log messages to parent logger
     logger.propagate = False
 
     return logger

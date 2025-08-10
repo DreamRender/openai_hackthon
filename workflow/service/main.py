@@ -5,6 +5,8 @@ Provides a centralized workflow class for orchestrating GitHub repository
 cloning and related operations.
 """
 
+import argparse
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -468,23 +470,125 @@ class MainWorkflow:
             raise
 
 
+def _parse_arguments() -> argparse.Namespace:
+    """
+    Parse command line arguments for main workflow.
+    
+    Returns:
+        Parsed arguments namespace containing github_repo_url and workspace_root
+        
+    Raises:
+        SystemExit: If argument parsing fails or help is requested
+    """
+    parser = argparse.ArgumentParser(
+        description="Main workflow for processing GitHub repositories with color theme generation",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python -m workflow.service.main https://github.com/user/repo.git
+  python -m workflow.service.main --repo https://github.com/user/repo.git --workspace /custom/workspace
+  python -m workflow.service.main -r https://github.com/user/repo.git -w ./my_workspace
+        """
+    )
+    
+    parser.add_argument(
+        "github_repo_url",
+        nargs="?",
+        type=str,
+        help="GitHub repository HTTPS URL to clone and process"
+    )
+    
+    parser.add_argument(
+        "--repo", "-r",
+        type=str,
+        dest="github_repo_url",
+        help="GitHub repository HTTPS URL to clone and process (alternative to positional argument)"
+    )
+    
+    parser.add_argument(
+        "--workspace", "-w",
+        type=str,
+        default=None,
+        help="Custom workspace root directory (optional, uses default if not specified)"
+    )
+    
+    return parser.parse_args()
+
+
+def _validate_arguments(args: argparse.Namespace) -> None:
+    """
+    Validate command line arguments.
+    
+    Args:
+        args: Parsed command line arguments
+        
+    Raises:
+        SystemExit: If validation fails
+    """
+    # Check if GitHub repository URL is provided
+    if not args.github_repo_url:
+        logger.error("GitHub repository URL is required")
+        logger.error("Use: python -m workflow.service.main <github_repo_url>")
+        logger.error("Or: python -m workflow.service.main --repo <github_repo_url>")
+        sys.exit(1)
+    
+    # Validate GitHub URL format
+    if not isinstance(args.github_repo_url, str) or not args.github_repo_url.strip():
+        logger.error("GitHub repository URL must be a non-empty string")
+        sys.exit(1)
+    
+    # Basic GitHub URL validation
+    github_url = args.github_repo_url.strip()
+    if not (github_url.startswith("https://github.com/") and github_url.endswith(".git")):
+        logger.warning("GitHub URL should be in HTTPS format and end with .git")
+        logger.warning(f"Example: https://github.com/user/repo.git")
+        logger.warning(f"Provided: {github_url}")
+    
+    # Validate workspace path if provided
+    if args.workspace:
+        workspace_path = Path(args.workspace)
+        if workspace_path.exists() and not workspace_path.is_dir():
+            logger.error(f"Workspace path exists but is not a directory: {args.workspace}")
+            sys.exit(1)
+    
+    logger.info("Arguments validated successfully")
+    logger.info(f"GitHub repository: {args.github_repo_url}")
+    if args.workspace:
+        logger.info(f"Custom workspace: {args.workspace}")
+    else:
+        logger.info("Using default workspace directory")
+
+
 if __name__ == "__main__":
     """
     Entry point for direct script execution.
 
-    When this module is run directly, it executes the complete main workflow
-    for demonstration and testing purposes.
+    When this module is run directly, it parses command line arguments
+    and executes the complete main workflow for GitHub repository processing.
+    
+    Command line arguments:
+        github_repo_url: GitHub repository HTTPS URL (positional or --repo/-r)
+        --workspace, -w: Custom workspace root directory (optional)
     """
     logger.info("Main workflow module execution started")
 
-    workflow = MainWorkflow()
     try:
+        # Parse and validate command line arguments
+        args = _parse_arguments()
+        _validate_arguments(args)
+        
+        # Initialize workflow with optional custom workspace
+        workflow = MainWorkflow(workspace_root=args.workspace)
+        
         # Execute the complete workflow pipeline
-        workflow.main(
-            "https://github.com/DreamRender/openai_hackthon_nextjs_test_1.git")
+        workflow.main(args.github_repo_url)
         logger.info("Workflow execution completed successfully")
 
+    except SystemExit:
+        # Re-raise SystemExit (from argparse or validation)
+        raise
     except Exception as e:
         logger.error(f"Workflow execution failed: {e}")
+        sys.exit(1)
 
     logger.info("Main workflow module execution finished")

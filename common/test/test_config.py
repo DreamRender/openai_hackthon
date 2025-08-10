@@ -10,23 +10,23 @@ from common.config.config import (
 
 
 class TestConfigPrint(unittest.TestCase):
-    """测试配置能否正确加载和打印"""
+    """Test whether configuration can be loaded and printed correctly"""
 
     @classmethod
     def setUpClass(cls):
-        """在所有测试之前设置环境"""
-        # 智能选择可用的环境
+        """Set up environment before all tests"""
+        # Intelligently select available environment
         import pathlib
         project_root = pathlib.Path(__file__).resolve().parent.parent.parent
 
-        # 检查可用的环境文件
+        # Check available environment files
         available_envs = []
         for env_file in project_root.glob('.env.*'):
             if not env_file.name.endswith('.template'):
                 env_name = env_file.name.replace('.env.', '')
                 available_envs.append(env_name)
 
-        # 优先选择 local，然后是 dev，最后是第一个可用的
+        # Prefer local, then dev, finally the first available
         env_to_use = None
         if 'local' in available_envs:
             env_to_use = 'local'
@@ -37,88 +37,83 @@ class TestConfigPrint(unittest.TestCase):
 
         if env_to_use:
             os.environ['ENV'] = env_to_use
-            print(f"测试使用环境: {env_to_use} (检测到环境文件: {available_envs})")
+            print(f"Test using environment: {env_to_use} (detected environment files: {available_envs})")
         else:
-            print("警告: 未找到任何环境文件，使用默认配置")
+            print("Warning: No environment files found, using default configuration")
 
-        print(f"配置加载后，ENV = {os.environ.get('ENV')}")
+        print(f"After configuration loading, ENV = {os.environ.get('ENV')}")
 
     def test_print_all_configs(self):
-        """测试打印所有可用的配置"""
+        """Test printing all available configurations"""
         print("\n" + "="*80)
-        print("配置测试 - 打印所有配置信息")
+        print("Configuration Test - Print All Configuration Information")
         print("="*80)
 
-        # 测试应用配置
+        # Test application configuration
         try:
             app_config = get_app_config()
-            print(f"\n✓ 应用配置:")
-            print(f"  应用名称: {app_config.app_name}")
-            print(f"  版本: {app_config.app_version}")
-            print(f"  环境: {app_config.env}")
+            print(f"\n✓ Application Configuration:")
+            print(f"  Application Name: {app_config.app_name}")
+            print(f"  Version: {app_config.app_version}")
+            print(f"  Environment: {app_config.env}")
         except Exception as e:
-            print(f"✗ 应用配置加载失败: {e}")
+            print(f"✗ Application configuration loading failed: {e}")
 
-        # 测试日志配置
+        # Test logging configuration
         try:
             logging_config = get_logging_config()
-            print(f"\n✓ 日志配置:")
-            print(f"  级别: {logging_config.level}")
-            print(f"  格式: {logging_config.format}")
-            print(f"  日期格式: {logging_config.datefmt}")
-            print(f"  颜色配置: {logging_config.colors[:50]}...")
+            print(f"\n✓ Logging Configuration:")
+            print(f"  Level: {logging_config.level}")
+            print(f"  Format: {logging_config.format}")
+            print(f"  Date Format: {logging_config.datefmt}")
+            print(f"  Color Configuration: {logging_config.colors[:50]}...")
         except Exception as e:
-            print(f"✗ 日志配置加载失败: {e}")
+            print(f"✗ Logging configuration loading failed: {e}")
 
-        # 测试工作流配置
+        # Test workflow configuration
         try:
             workflow_config = get_workflow_config()
-            print(f"\n✓ 工作流配置:")
-            print(
-                f"  Anthropic API: {workflow_config.anthropic_api_key[:15]}...")
+            print(f"\n✓ Workflow Configuration:")
             print(f"  OpenAI API: {workflow_config.openai_api_key[:15]}...")
-            print(f"  Exa API: {workflow_config.exa_api_key[:15]}...")
-            print(
-                f"  Twitter API: {workflow_config.twitterapi_api_key[:15]}...")
         except Exception as e:
-            print(f"✗ 工作流配置加载失败: {e}")
+            print(f"✗ Workflow configuration loading failed: {e}")
 
         print("\n" + "="*80)
-        print("配置测试完成")
+        print("Configuration Test Completed")
         print("="*80)
 
     def test_config_health_check(self):
-        """测试配置健康检查"""
+        """Test configuration health check"""
         print("\n" + "="*80)
-        print("配置健康检查")
+        print("Configuration Health Check")
         print("="*80)
 
         manager = ConfigManager()
         health = manager.get_health_status()
 
-        print(f"配置管理器已初始化: {health['initialized']}")
-        print(f"整体状态: {health['overall_status']}")
+        print(f"Configuration manager initialized: {health['initialized']}")
+        print(f"Overall status: {health['overall_status']}")
 
-        print("\n各配置项状态:")
+        print("\nEach configuration item status:")
         for config_name, status in health['configs'].items():
             status_symbol = "✓" if status['status'] == 'ok' else "✗"
             print(f"  {status_symbol} {config_name}: {status['status']}")
             if status['status'] != 'ok' and 'message' in status:
-                print(f"    错误信息: {status['message']}")
+                print(f"    Error message: {status['message']}")
 
         print("="*80)
 
     def test_print_config_summary(self):
-        """测试打印配置摘要"""
+        """Test printing configuration summary"""
         print("\n" + "="*80)
-        print("配置摘要打印测试")
+        print("Configuration Summary Print Test")
         print("="*80)
 
         manager = ConfigManager()
         manager.print_config()
 
         print("="*80)
-        print("配置摘要打印完成")
+        print("Configuration Summary Print Completed")
         print("="*80)
 
 
