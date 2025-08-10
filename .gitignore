@@ -1,12 +1,12 @@
 ### Python ###
-# Python字节码文件
+# Python bytecode files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 
-# Python开发工具
+# Python development tools
 .mypy_cache/
 .dmypy.json
 dmypy.json
@@ -14,7 +14,7 @@ dmypy.json
 .pytype/
 cython_debug/
 
-# Python虚拟环境
+# Python virtual environments
 venv*/
 .venv*/
 env/
@@ -23,7 +23,7 @@ ENV/
 /fake_data
 /daytona
 
-# Python包分发/打包
+# Python package distribution/packaging
 dist/
 build/
 develop-eggs/
@@ -40,13 +40,13 @@ var/
 *.egg
 
 ### Flask ###
-# Flask实例文件夹
+# Flask instance folder
 instance/
 
-# Flask缓存
+# Flask cache
 .webassets-cache
 
-# Flask环境变量文件
+# Flask environment variable files
 .flaskenv
 
 ### IDE ###
@@ -66,7 +66,7 @@ instance/
 # Claude IDE
 .claude/
 
-### 系统文件 ###
+### System Files ###
 # Mac OS
 .DS_Store
 .DS_Store?
@@ -79,24 +79,24 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
-### 项目特定 ###
-# 日志文件
+### Project Specific ###
+# Log files
 /log/
 *.log
 
-# 本地历史记录
+# Local history
 .history
 
-# 数据库文件
+# Database files
 *.db
 *.sqlite
 *.sqlite3
 
-# 本地配置文件
+# Local configuration files
 config.local.py
 settings.local.py
 
-# 测试覆盖率报告
+# Test coverage reports
 .coverage
 .coverage.*
 coverage.xml
@@ -108,14 +108,14 @@ htmlcov/
 .pytest_cache/
 .cache
 
-# 其他
+# Others
 .python-version
 
 # Jupyter Notebook
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# 备份文件
+# Backup files
 *~
 *.bak
 *.backup
@@ -124,18 +124,18 @@ htmlcov/
 *.swp
 *.swo
 
-# 临时文件
+# Temporary files
 *.tmp
 *.temp
 *.pid
 *.seed
 *.pid.lock
 
-# 运行时数据
+# Runtime data
 pids/
 *.pid.lock
 
-# 安全敏感文件
+# Security sensitive files
 *.key
 *.pem
 *.p12
@@ -144,7 +144,7 @@ pids/
 *.cer
 !resource/cert/*.crt.pem
 
-# 压缩文件
+# Compressed files
 *.zip
 *.tar
 *.tar.gz
@@ -153,13 +153,13 @@ pids/
 *.7z
 *.gz
 
-# 本地开发配置
+# Local development configuration
 local_settings.py
 .env.development.local
 .env.test.local
 .env.production.local
 
-# 环境变量文件
+# Environment variable files
 .env
 .env.*
 !.env.template
@@ -167,11 +167,11 @@ local_settings.py
 !.env.sample
 **/.env.local
 
-# IDE开发Todo文件夹
+# IDE development Todo folder
 todo
 
-#cursor配置文件
+# Cursor configuration files
 .cursor/
 
-# 工作目录
+# Working directory
 workspace/
