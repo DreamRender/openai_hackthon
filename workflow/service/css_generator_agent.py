@@ -11,6 +11,7 @@ import os
 import sys
 from pathlib import Path
 from typing import List, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from openai import OpenAI
 from pydantic import BaseModel, Field
@@ -27,54 +28,45 @@ DEFAULT_THEMES_DIRECTORY_PATH = \
 DEFAULT_ORIGINAL_CSS_FILE_PATH = \
     "/workspace/ui-agent/workspace/openai_hackthon_nextjs_test_1-3d173a/.design/themes/original.css"
 
-# Prompt for OpenAI CSS theme generation
-CSS_THEME_GENERATION_PROMPT = """
-You are a CSS theme design expert. Your task is to generate 5 new color theme variations based on an original CSS file and existing theme information.
+# Prompts for OpenAI CSS theme generation (single-theme concurrent mode)
+SINGLE_THEME_GENERATION_PROMPT = """
+You are a CSS theme design expert. Generate ONE new color theme variation based on an original CSS file and existing theme information.
 
-Your objectives:
-1. Analyze the provided original CSS file to understand its structure and color usage patterns
-2. Review the existing theme JSON files to understand current color palettes and avoid similar combinations
-3. Generate 5 completely new and distinct color theme variations with unique color schemes
-4. For each new theme, create both a modified CSS file and a corresponding JSON description
+Objectives:
+1) Analyze the original CSS to understand structure and color usage
+2) Use ONLY color changes (hex/rgb/rgba/hsl/hsla/named/CSS variables); preserve all other properties unchanged
+3) Create ONE completely new and distinct color theme with a unique color scheme
+4) Return the complete modified CSS and a JSON description with title and representative_colors
 
-CRITICAL: Color Uniqueness Requirements:
-- Carefully analyze the representative colors from ALL existing themes
-- Ensure each new theme uses a COMPLETELY DIFFERENT color palette from existing themes
-- Avoid similar color combinations, hues, or saturation levels that already exist
-- Create truly unique and distinguishable color schemes
-- Each of the 5 new themes must also be distinct from each other
-- Consider color theory: complementary, triadic, analogous, and monochromatic schemes
-- Use different color temperatures (warm vs cool) and brightness levels
+CRITICAL: Uniqueness Requirements:
+- Carefully analyze representative colors from ALL existing themes provided
+- Ensure this theme uses a COMPLETELY DIFFERENT color palette from existing themes
+- Avoid similar combinations, hues, saturation levels, and brightness already present
+- Follow the provided diversity directive strictly to further reduce overlap with other concurrently generated themes
 
-Key requirements for CSS generation:
-- ONLY modify color values (hex, rgb, rgba, hsl, hsla, named colors, CSS variables)
-- Maintain ALL other CSS properties exactly as they are (margins, paddings, fonts, layouts, etc.)
-- Preserve the exact same CSS structure, selectors, and non-color properties
-- Ensure the modified CSS maintains the same visual layout and functionality
-- Use harmonious and professional color schemes for each variation
-- Make each theme visually distinct from the original and from each other
-
-Key requirements for filename generation:
-- Generate unique filenames that don't conflict with existing JSON files
-- Use descriptive names that reflect the unique color scheme (e.g., "coral_sunset", "emerald_forest", "royal_purple")
-- Use lowercase with underscores for consistency
+Filename requirements:
+- Generate a unique, descriptive, lowercase filename with underscores
+- Must not conflict with any existing filenames provided
 - The same filename will be used for both CSS and JSON files (different extensions)
 
-Key requirements for JSON descriptions:
-- Generate a descriptive title that captures the essence of the unique color theme
-- Extract 3-6 representative colors from the generated CSS in HEX format
-- Titles should be user-friendly and suitable for theme selection interface
-- Each theme should have a unique and meaningful title that reflects its distinctive color palette
+JSON description requirements:
+- Provide a descriptive title capturing the unique color theme
+- Extract 3-6 representative HEX colors from the generated CSS
 
-Generate 5 diverse and UNIQUE theme variations such as:
-- Unique color families not represented in existing themes
-- Distinctive saturation and brightness combinations
-- Novel color temperature combinations
-- Creative color harmonies (split-complementary, tetradic, etc.)
-- Thematic color schemes (nature-inspired, cosmic, vintage, neon, etc.)
-
-Response format: Return a JSON array with 5 theme objects, each containing filename, CSS content, and theme description.
+Return JSON with:
+- filename: string
+- css_content: string (complete CSS with only color changes)
+- theme_description: object with fields: title (string), representative_colors (array of strings)
 """
+
+# Fixed diversity directives to guide concurrent jobs toward different palettes
+DIVERSITY_DIRECTIVES: List[str] = [
+    "Warm complementary palette focusing on reds/oranges with contrasting teals",
+    "Cool analogous palette focusing on blues/cyans with subtle purples",
+    "High-contrast monochrome with accent highlights (dark base, neon accents)",
+    "Muted earthy palette with desaturated greens/browns and soft neutrals",
+    "Vibrant triadic palette (distinct primaries split across UI areas)",
+]
 
 
 class CssFileReadError(Exception):
@@ -172,6 +164,17 @@ class ThemeGenerationResult(BaseModel):
     }
 
 
+class CssGeneratorResult(BaseModel):
+    """
+    Result of the concurrent CSS theme generation agent execution.
+    """
+
+    generated_count: int = Field(..., description="Number of generated theme variations")
+    themes_directory_path: str = Field(..., description="Path where themes are written")
+    success: bool = Field(..., description="Whether generation completed successfully")
+    message: str = Field(..., description="Summary message for the operation")
+
+
 
 def _scan_existing_themes(themes_directory_path: str) -> List[ExistingThemeInfo]:
     """
@@ -224,109 +227,101 @@ def _scan_existing_themes(themes_directory_path: str) -> List[ExistingThemeInfo]
         raise ThemesDirectoryError(themes_directory_path, str(e))
 
 
-def _generate_new_themes(
+def _generate_single_theme(
     original_css_content: str,
-    existing_themes: List[ExistingThemeInfo]
-) -> List[GeneratedTheme]:
+    existing_themes: List[ExistingThemeInfo],
+    diversity_directive: str,
+) -> GeneratedTheme:
     """
-    Generate new theme variations using OpenAI.
-    
+    Generate a single new theme variation using OpenAI, guided by a diversity directive.
+
     Args:
         original_css_content: Content of the original CSS file
         existing_themes: List of existing themes to avoid conflicts
-        
+        diversity_directive: Specific guidance to push palette diversity
+
     Returns:
-        List of GeneratedTheme objects with new theme variations
-        
+        GeneratedTheme: The newly generated theme
+
     Raises:
         ThemeGenerationError: If theme generation fails
     """
-    logger.info("Generating new theme variations using OpenAI")
-    
+    logger.info("Generating single theme variation using OpenAI")
+
     try:
-        # Get OpenAI configuration
         workflow_config = get_workflow_config()
-        
-        # Initialize OpenAI client
         client = OpenAI(api_key=workflow_config.openai_api_key)
-        
-        # Define the JSON schema for structured output
+
         json_schema = {
             "type": "object",
             "properties": {
-                "generated_themes": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "filename": {
-                                "type": "string",
-                                "description": "Unique filename for the theme (without extension)"
-                            },
-                            "css_content": {
-                                "type": "string",
-                                "description": "Complete CSS content with modified colors"
-                            },
-                            "theme_description": {
-                                "type": "object",
-                                "properties": {
-                                    "title": {
-                                        "type": "string",
-                                        "description": "Descriptive title for the theme"
-                                    },
-                                    "representative_colors": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        },
-                                        "description": "List of representative colors in HEX format"
-                                    }
-                                },
-                                "required": ["title", "representative_colors"],
-                                "additionalProperties": False
-                            }
+                "filename": {
+                    "type": "string",
+                    "description": "Unique filename for the theme (without extension)"
+                },
+                "css_content": {
+                    "type": "string",
+                    "description": "Complete CSS content with modified colors"
+                },
+                "theme_description": {
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "Descriptive title for the theme"
                         },
-                        "required": ["filename", "css_content", "theme_description"],
-                        "additionalProperties": False
+                        "representative_colors": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of representative colors in HEX format"
+                        }
                     },
-                    "minItems": 5,
-                    "maxItems": 5
+                    "required": ["title", "representative_colors"],
+                    "additionalProperties": False
                 }
             },
-            "required": ["generated_themes"],
+            "required": ["filename", "css_content", "theme_description"],
             "additionalProperties": False
         }
-        
-        # Prepare detailed existing themes information for color analysis
+
+        # Prepare existing themes info
         existing_filenames = [theme.filename for theme in existing_themes]
         existing_themes_info = ""
-        
         if existing_themes:
             existing_themes_info = "Existing Theme Files (avoid these filenames and color combinations):\n\n"
             for theme in existing_themes:
-                title = theme.content.get('title', 'Unknown')
-                colors = theme.content.get('representative_colors', [])
+                title = theme.content.get("title", "Unknown")
+                colors = theme.content.get("representative_colors", [])
                 existing_themes_info += f"Theme: {theme.filename}\n"
                 existing_themes_info += f"  Title: {title}\n"
-                existing_themes_info += f"  Representative Colors: {', '.join(colors) if colors else 'None specified'}\n\n"
-            
-            existing_themes_info += "CRITICAL: Analyze the above color palettes and ensure your new themes use COMPLETELY DIFFERENT color schemes. Avoid similar hues, saturation levels, brightness, and color families. Create truly unique and distinguishable color combinations.\n"
+                existing_themes_info += (
+                    f"  Representative Colors: {', '.join(colors) if colors else 'None specified'}\n\n"
+                )
+            existing_themes_info += (
+                "CRITICAL: Analyze the above color palettes and ensure your new theme uses a COMPLETELY DIFFERENT color scheme. Avoid similar hues, saturation levels, brightness, and color families.\n"
+            )
         else:
-            existing_themes_info = "No existing theme files found. You have complete creative freedom for color selection.\n"
-        
-        # Prepare the input content
-        input_content = f"""{CSS_THEME_GENERATION_PROMPT}
+            existing_themes_info = (
+                "No existing theme files found. You have complete creative freedom for color selection.\n"
+            )
+
+        input_content = f"""{SINGLE_THEME_GENERATION_PROMPT}
 
 {existing_themes_info}
+
+Diversity Directive (strictly follow):
+{diversity_directive}
+
+Existing Filenames (avoid conflicts):
+{', '.join(existing_filenames) if existing_filenames else 'None'}
 
 Original CSS Content:
 {original_css_content}
 
-Please generate 5 new and distinct color theme variations based on this CSS file. Each theme should have a unique filename that doesn't conflict with existing themes, modified CSS content with only color changes, and a descriptive JSON theme description."""
-        
-        logger.info("Sending theme generation request to OpenAI GPT-5 model")
-        
-        # Call OpenAI API with structured output
+Please generate ONE distinct theme based on the directive above. Ensure strong palette uniqueness and filename uniqueness."""
+
+        logger.info("Sending single theme generation request to OpenAI GPT-5 model")
+
         response = client.responses.create(
             model="gpt-5",
             input=[
@@ -343,23 +338,19 @@ Please generate 5 new and distinct color theme variations based on this CSS file
             text={
                 "format": {
                     "type": "json_schema",
-                    "name": "theme_generation",
+                    "name": "single_theme_generation",
                     "strict": True,
                     "schema": json_schema
                 },
                 "verbosity": "medium"
             },
-            reasoning={
-                "effort": "minimal"
-            },
+            reasoning={"effort": "minimal"},
             tools=[],
-            store=True
+            store=True,
         )
-        
-        # Extract the response content
-        logger.info("Received response from OpenAI")
-        
-        # Try to extract content from Responses API structure
+
+        logger.info("Received response from OpenAI for single theme generation")
+
         content = getattr(response, "output_text", None)
         if not content:
             try:
@@ -373,31 +364,82 @@ Please generate 5 new and distinct color theme variations based on this CSS file
             except Exception:
                 logger.error(f"Failed to parse response structure: {response}")
                 raise ThemeGenerationError(f"Unable to extract content from response: {type(response)}")
-        
+
         if not content:
             raise ThemeGenerationError("Empty response content from OpenAI")
-        
+
         logger.info(f"Extracted response content: {content[:200]}...")
-        
-        # Parse the JSON response
+
         try:
-            generation_data = json.loads(content)
+            theme_data = json.loads(content)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response: {content}")
             raise ThemeGenerationError(f"Invalid JSON response from OpenAI: {e}")
-        
-        # Create and validate the generation result
-        result = ThemeGenerationResult(**generation_data)
-        
-        logger.info(f"Successfully generated {len(result.generated_themes)} theme variations")
-        for theme in result.generated_themes:
-            logger.info(f"Generated theme: {theme.filename} - {theme.theme_description.get('title', 'Unknown')}")
-        
-        return result.generated_themes
-        
+
+        result = GeneratedTheme(**theme_data)
+        logger.info(f"Successfully generated theme: {result.filename} - {result.theme_description.get('title', 'Unknown')}")
+        return result
+
     except Exception as e:
-        logger.error(f"Error during theme generation: {e}")
+        logger.error(f"Error during single theme generation: {e}")
         raise ThemeGenerationError(str(e))
+
+
+def _generate_new_themes(
+    original_css_content: str,
+    existing_themes: List[ExistingThemeInfo]
+) -> List[GeneratedTheme]:
+    """
+    Generate 5 new theme variations concurrently using OpenAI, with diversity directives.
+
+    Args:
+        original_css_content: Content of the original CSS file
+        existing_themes: List of existing themes to avoid conflicts
+
+    Returns:
+        List of GeneratedTheme objects with new theme variations
+
+    Raises:
+        ThemeGenerationError: If any theme generation fails
+    """
+    logger.info("Generating 5 new theme variations concurrently using OpenAI")
+
+    futures = []
+    results: List[GeneratedTheme] = []
+    errors: List[str] = []
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        for directive in DIVERSITY_DIRECTIVES:
+            futures.append(
+                executor.submit(
+                    _generate_single_theme,
+                    original_css_content,
+                    existing_themes,
+                    directive,
+                )
+            )
+
+        for future in as_completed(futures):
+            try:
+                results.append(future.result())
+            except Exception as e:
+                errors.append(str(e))
+
+    if errors:
+        raise ThemeGenerationError("; ".join(errors))
+
+    # De-duplicate filenames if collisions occur across concurrent generations
+    seen: Dict[str, int] = {}
+    for theme in results:
+        base = theme.filename
+        if base not in seen:
+            seen[base] = 0
+            continue
+        seen[base] += 1
+        theme.filename = f"{base}_{seen[base]}"
+
+    logger.info(f"Successfully generated {len(results)} theme variations concurrently")
+    return results
 
 
 def _write_theme_files(
@@ -445,15 +487,15 @@ def _write_theme_files(
 def css_generator_agent(
     themes_directory_path: str,
     original_css_file_path: str
-) -> None:
+) -> CssGeneratorResult:
     """
     Generate multiple color theme variations based on an original CSS file.
     
-    This function scans the themes directory for existing themes, reads the original
-    CSS file, and uses OpenAI's GPT-5 model to generate 5 new color theme variations.
-    Each variation includes both a modified CSS file and a corresponding JSON description
-    file for theme selection interface display. The function ensures each new theme has
-    unique colors that don't overlap with existing themes.
+    This function scans the themes directory for existing themes, reads the original CSS file,
+    and uses OpenAI's GPT-5 model to concurrently generate 5 new color theme variations
+    (5 parallel requests, one theme per request). Each variation includes both a modified CSS
+    file and a corresponding JSON description. The process enforces palette diversity via
+    fixed, distinct diversity directives to reduce similarity.
     
     Args:
         themes_directory_path: Path to the themes directory where JSON and CSS files are stored

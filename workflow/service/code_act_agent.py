@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 from typing import List, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from openai import OpenAI
 from pydantic import BaseModel, Field
@@ -13,38 +14,41 @@ from workflow.service.code_analyze_agent import FrontendProjectAnalysis
 
 logger = get_logger(__name__)
 
-# Prompt for OpenAI color theme extraction and modification
-COLOR_THEME_PROMPT = """
-You are a frontend theme architect. Your task is to analyze a frontend file (TSX/JSX/HTML) and extract all hardcoded colors to create a centralized theme system using CSS custom properties (variables).
+# Prompts for OpenAI processing
+# Long prompts must be declared at module top per workspace rules
+COLOR_THEME_INSTRUCTION_PROMPT = """
+You are a senior frontend theme architect. Analyze a single frontend file (TSX/JSX/HTML) and centralize hardcoded colors using CSS custom properties.
 
-Your objectives:
-1. Identify ALL hardcoded colors in the provided file including:
-   - Hex colors (#ffffff, #000, etc.)
-   - RGB/RGBA colors (rgb(255,255,255), rgba(0,0,0,0.5), etc.)
-   - HSL/HSLA colors (hsl(0,0%,100%), etc.)
-   - Named colors (red, blue, white, black, etc.)
-   - Colors in Tailwind classes (text-red-500, bg-blue-600, etc.)
-   - Any other color representations
+Objectives for THIS FILE ONLY:
+1) Identify ALL hardcoded colors (hex/rgb/rgba/hsl/hsla/named/Tailwind-like tokens/etc.)
+2) Replace them with var(--css-variable) in the file and produce the COMPLETE modified file content
+3) DO NOT return the full main CSS. Instead, return a precise natural-language instruction list describing the necessary edits to the main CSS:
+   - New CSS variables to add (name and value), and their purpose
+   - Whether an existing variable already covers a color (reuse it)
+   - Where to place variables (e.g., in :root or in existing theme groups)
+   - Any grouping/order rules
+   - Any removals/renames if applicable
 
-2. For each unique color found:
-   - Generate a meaningful CSS variable name (e.g., --primary-color, --text-dark, --bg-light)
-   - Add the variable definition to the main CSS file
-   - Replace the hardcoded color in the file with var(--variable-name)
+Important:
+- Preserve existing functionality and styling
+- Maintain import/export and code structure
+- Keep consistent formatting
+- If the project already defines CSS variables, reuse them whenever appropriate
 
-3. Preserve existing CSS variables that are already defined in the main CSS
+Return JSON with:
+- modified_file_content: string (complete file content)
+- main_css_change_instructions: string (natural-language instructions only, no CSS file content)
+"""
 
-4. Ensure the modified file maintains the same visual appearance
-5. Generate complete file contents (not partial modifications)
+FINAL_MAIN_CSS_MERGE_PROMPT = """
+You are a CSS theme system editor. You will be given the current main CSS content and a set of natural-language instructions from multiple files describing how to update the main CSS.
 
-Key requirements:
-- Return COMPLETE file contents for both the modified file and updated main CSS
-- Maintain all existing functionality and styling
-- Use semantic variable names that describe the color's purpose
-- Group related colors logically in the CSS
-- Preserve all imports, exports, and other code structure
-- Keep consistent code formatting and style
-
-Response format: Return the complete modified file content and complete updated main CSS content.
+Your task:
+1) Apply ALL instructions precisely
+2) Maintain existing variable definitions unless superseded
+3) Add new variables with semantic names, group them logically
+4) Ensure final CSS remains valid and consistent
+5) Return ONLY the COMPLETE, updated main CSS content as a string
 """
 
 
@@ -56,27 +60,48 @@ class CodeActFileNotFoundError(Exception):
         super().__init__(f"No frontend files (tsx/jsx/html) found in directory: {directory_path}")
 
 
-class ThemeExtractionResult(BaseModel):
+class ThemeExtractionInstructionResult(BaseModel):
     """
-    Pydantic model for theme extraction results from OpenAI.
-    
-    This model defines the structure of the JSON response from OpenAI
-    when processing a file for color theme extraction.
+    Structured output for per-file processing.
+
+    Contains the fully modified file content and a natural-language instruction
+    list describing changes that should be applied to the main CSS file.
     """
-    
-    modified_file_content: str = Field(
-        ...,
-        description="The complete modified file content with colors replaced by CSS variables"
+
+    file_path: str = Field(
+        ..., description="Relative path of the processed file within the project"
     )
-    updated_main_css_content: str = Field(
-        ...,
-        description="The complete updated main CSS content with new CSS variable definitions"
+    modified_file_content: str = Field(
+        ..., description="Complete modified file content with CSS variables applied"
+    )
+    main_css_change_instructions: str = Field(
+        ..., description="Natural-language instructions describing how to update the main CSS"
     )
 
-    model_config = {
-        "validate_assignment": True,
-        "extra": "forbid"
-    }
+    model_config = {"validate_assignment": True, "extra": "forbid"}
+
+
+class FinalMainCssResult(BaseModel):
+    """
+    Structured output for the final merged main CSS generation.
+    """
+
+    updated_main_css_content: str = Field(
+        ..., description="The complete updated main CSS content after applying all instructions"
+    )
+
+    model_config = {"validate_assignment": True, "extra": "forbid"}
+
+
+class CodeActResult(BaseModel):
+    """
+    Result of the CodeAct agent execution.
+    """
+
+    processed_file_count: int = Field(..., description="Number of frontend files processed")
+    main_css_path: str = Field(..., description="Path to the updated main CSS file")
+    success: bool = Field(..., description="Whether the operation completed successfully")
+    message: str = Field(..., description="Summary message for the operation")
 
 
 def _scan_frontend_files(directory_path: str) -> List[Tuple[str, str]]:
@@ -143,7 +168,7 @@ def _process_single_file(
     main_css_content: str,
     ui_frameworks_info: str,
     directory_path: str
-) -> ThemeExtractionResult:
+) -> ThemeExtractionInstructionResult:
     """
     Process a single frontend file to extract colors and generate theme variables.
     
@@ -155,7 +180,7 @@ def _process_single_file(
         directory_path: Root directory path for context
         
     Returns:
-        ThemeExtractionResult: Contains modified file content and updated main CSS
+        ThemeExtractionInstructionResult: Modified file content and natural-language main CSS change instructions
         
     Raises:
         Exception: For errors during API calls or content processing
@@ -173,21 +198,25 @@ def _process_single_file(
         json_schema = {
             "type": "object",
             "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Relative path of the processed file within the project"
+                },
                 "modified_file_content": {
                     "type": "string",
                     "description": "The complete modified file content with colors replaced by CSS variables"
                 },
-                "updated_main_css_content": {
+                "main_css_change_instructions": {
                     "type": "string",
-                    "description": "The complete updated main CSS content with new CSS variable definitions"
+                    "description": "Natural-language instructions describing how to update the main CSS"
                 }
             },
-            "required": ["modified_file_content", "updated_main_css_content"],
+            "required": ["file_path", "modified_file_content", "main_css_change_instructions"],
             "additionalProperties": False
         }
         
         # Prepare the input content
-        input_content = f"""{COLOR_THEME_PROMPT}
+        input_content = f"""{COLOR_THEME_INSTRUCTION_PROMPT}
 
 Project Information:
 - Directory: {directory_path}
@@ -200,7 +229,7 @@ File Content:
 Current Main CSS Content:
 {main_css_content}
 
-Please analyze this file and extract all hardcoded colors to CSS variables. Return the complete modified file content and updated main CSS content."""
+Please analyze this file and extract all hardcoded colors to CSS variables. Return the complete modified file content and a precise natural-language instruction list for main CSS changes. Do NOT include the full main CSS content here."""
         
         logger.info("Sending request to OpenAI GPT-5 model")
         
@@ -221,7 +250,7 @@ Please analyze this file and extract all hardcoded colors to CSS variables. Retu
             text={
                 "format": {
                     "type": "json_schema",
-                    "name": "theme_extraction",
+                    "name": "theme_extraction_instructions",
                     "strict": True,
                     "schema": json_schema
                 },
@@ -266,7 +295,10 @@ Please analyze this file and extract all hardcoded colors to CSS variables. Retu
             raise Exception(f"Invalid JSON response from OpenAI: {e}")
         
         # Create and return the result
-        result = ThemeExtractionResult(**extraction_data)
+        # Ensure file_path is present in the response; if not, inject from input
+        if "file_path" not in extraction_data or not extraction_data.get("file_path"):
+            extraction_data["file_path"] = file_path
+        result = ThemeExtractionInstructionResult(**extraction_data)
         logger.info(f"Successfully processed file: {file_path}")
         return result
         
@@ -302,22 +334,137 @@ def _write_file_content(file_path: str, content: str) -> None:
         raise Exception(f"File write operation failed for {file_path}: {e}")
 
 
+def _generate_final_main_css(
+    current_main_css_content: str,
+    aggregated_instructions: str,
+    ui_frameworks_info: str,
+    directory_path: str,
+) -> FinalMainCssResult:
+    """
+    Generate the final main CSS by applying aggregated natural-language instructions.
+
+    Args:
+        current_main_css_content: The current content of the main CSS file
+        aggregated_instructions: Combined natural-language instructions from all files
+        ui_frameworks_info: Information about UI frameworks used in the project
+        directory_path: Root directory path for context
+
+    Returns:
+        FinalMainCssResult: The complete updated main CSS content
+
+    Raises:
+        Exception: For errors during API calls or content processing
+    """
+    logger.info("Generating final main CSS based on aggregated instructions")
+
+    try:
+        workflow_config = get_workflow_config()
+        client = OpenAI(api_key=workflow_config.openai_api_key)
+
+        json_schema = {
+            "type": "object",
+            "properties": {
+                "updated_main_css_content": {
+                    "type": "string",
+                    "description": "The complete updated main CSS content after applying all instructions"
+                }
+            },
+            "required": ["updated_main_css_content"],
+            "additionalProperties": False
+        }
+
+        input_content = f"""{FINAL_MAIN_CSS_MERGE_PROMPT}
+
+Project Information:
+- Directory: {directory_path}
+- UI Frameworks: {ui_frameworks_info}
+
+Current Main CSS Content:
+{current_main_css_content}
+
+Aggregated Instructions From All Files:
+{aggregated_instructions}
+
+Please apply all instructions and return only the complete updated main CSS content."""
+
+        logger.info("Sending request to OpenAI GPT-5 model for final main CSS generation")
+
+        response = client.responses.create(
+            model="gpt-5",
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": input_content
+                        }
+                    ]
+                }
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "final_main_css_generation",
+                    "strict": True,
+                    "schema": json_schema
+                },
+                "verbosity": "medium"
+            },
+            reasoning={"effort": "minimal"},
+            tools=[],
+            store=True,
+        )
+
+        logger.info("Received response from OpenAI for final main CSS generation")
+
+        content = getattr(response, "output_text", None)
+        if not content:
+            try:
+                content_parts = []
+                for item in getattr(response, "output", []) or []:
+                    for block in getattr(item, "content", []) or []:
+                        block_type = getattr(block, "type", "")
+                        if block_type in ("output_text", "text") and hasattr(block, "text"):
+                            content_parts.append(block.text)
+                content = "\n".join(content_parts) if content_parts else ""
+            except Exception:
+                logger.error(f"Failed to parse response structure: {response}")
+                raise Exception(f"Unable to extract content from response: {type(response)}")
+
+        if not content:
+            raise Exception("Empty response content from OpenAI")
+
+        logger.info(f"Extracted response content for final CSS: {content[:200]}...")
+
+        try:
+            final_data = json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {content}")
+            raise Exception(f"Invalid JSON response from OpenAI: {e}")
+
+        result = FinalMainCssResult(**final_data)
+        logger.info("Successfully generated final main CSS content")
+        return result
+
+    except Exception as e:
+        logger.error(f"Error generating final main CSS: {e}")
+        raise Exception(f"Failed to generate final main CSS: {e}")
+
+
 def code_act_agent(
     directory_path: str, 
     css_analysis_result: CssAnalysisResult, 
     frontend_analysis: FrontendProjectAnalysis
-) -> None:
+) -> CodeActResult:
     """
     Process frontend files to extract colors and create a centralized theme system.
     
     This function scans the specified directory for frontend files (tsx, jsx, html),
-    processes each file individually through OpenAI's GPT-5 model to extract hardcoded
-    colors and replace them with CSS custom properties (variables), then writes the
-    modified files and updated main CSS back to the filesystem.
-    
-    The process is sequential - each file is processed one by one, ensuring that
-    the main CSS file is progressively updated with new color variables from each
-    processed file.
+    then processes files concurrently (up to 10 in parallel) via OpenAI's GPT-5 model.
+    Each per-file task returns the fully modified file content and a natural-language
+    instruction list for main CSS changes. After all per-file tasks complete, a final
+    aggregation call generates the complete updated main CSS, which is then written once.
     
     Args:
         directory_path: Path to the directory containing the frontend project
@@ -346,52 +493,84 @@ def code_act_agent(
     try:
         # Scan for frontend files
         frontend_files = _scan_frontend_files(directory_path)
-        
-        # Get the main CSS file path
+
+        # Get the main CSS file path and read it once (we will generate the final CSS after aggregation)
         main_css_path = dir_path / css_analysis_result.main_css_path
-        
-        logger.info(f"Starting to process {len(frontend_files)} frontend files")
+        try:
+            with open(main_css_path, 'r', encoding='utf-8') as css_file:
+                current_main_css_content = css_file.read()
+            logger.info(f"Read main CSS content: {len(current_main_css_content)} characters")
+        except Exception as e:
+            logger.error(f"Failed to read main CSS file {main_css_path}: {e}")
+            raise Exception(f"Cannot read main CSS file: {e}")
+
+        logger.info(f"Starting concurrent processing of {len(frontend_files)} frontend files")
         logger.info(f"Main CSS file: {css_analysis_result.main_css_path}")
-        
-        # Process each file sequentially
-        for index, (relative_file_path, file_content) in enumerate(frontend_files, 1):
-            logger.info(f"Processing file {index}/{len(frontend_files)}: {relative_file_path}")
-            
-            try:
-                # Read the latest main CSS content from disk before processing each file
-                # This ensures we have the most up-to-date CSS variables from previous iterations
-                try:
-                    with open(main_css_path, 'r', encoding='utf-8') as css_file:
-                        current_main_css_content = css_file.read()
-                    logger.info(f"Read latest main CSS content from disk: {len(current_main_css_content)} characters")
-                except Exception as e:
-                    logger.error(f"Failed to read main CSS file {main_css_path}: {e}")
-                    raise Exception(f"Cannot read main CSS file: {e}")
-                
-                # Process the file with current main CSS content
-                extraction_result = _process_single_file(
+
+        extraction_results: List[ThemeExtractionInstructionResult] = []
+        errors: List[str] = []
+
+        # Execute per-file processing with up to 10 concurrent workers
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_file = {}
+            for relative_file_path, file_content in frontend_files:
+                future = executor.submit(
+                    _process_single_file,
                     file_path=relative_file_path,
                     file_content=file_content,
                     main_css_content=current_main_css_content,
                     ui_frameworks_info=frontend_analysis.ui_frameworks_info,
-                    directory_path=directory_path
+                    directory_path=directory_path,
                 )
-                
-                # Write the modified file content
-                full_file_path = dir_path / relative_file_path
-                _write_file_content(str(full_file_path), extraction_result.modified_file_content)
-                
-                # Write the updated main CSS content
-                _write_file_content(str(main_css_path), extraction_result.updated_main_css_content)
-                
-                logger.info(f"Successfully processed and wrote file {index}/{len(frontend_files)}: {relative_file_path}")
-                
-            except Exception as e:
-                logger.error(f"Failed to process file {relative_file_path}: {e}")
-                raise Exception(f"Processing failed for file {relative_file_path}: {e}")
-        
-        logger.info("CodeActAgent completed successfully")
-        logger.info(f"Processed {len(frontend_files)} files and updated main CSS: {css_analysis_result.main_css_path}")
+                future_to_file[future] = relative_file_path
+
+            for future in as_completed(future_to_file):
+                rel_path = future_to_file[future]
+                try:
+                    result = future.result()
+                    extraction_results.append(result)
+                    logger.info(f"Concurrent processing completed for file: {rel_path}")
+                except Exception as e:
+                    error_msg = f"Concurrent processing failed for file {rel_path}: {e}"
+                    logger.error(error_msg)
+                    errors.append(error_msg)
+
+        if errors:
+            # Early fail on any per-file error per project rule that stage errors must throw
+            raise Exception("; ".join(errors))
+
+        logger.info("Writing modified files to disk")
+        for result in extraction_results:
+            full_file_path = dir_path / result.file_path
+            _write_file_content(str(full_file_path), result.modified_file_content)
+
+        logger.info("Aggregating main CSS change instructions")
+        instructions_parts: List[str] = []
+        for result in extraction_results:
+            # Include file path context to help the merge step
+            instructions_parts.append(f"File: {result.file_path}\n{result.main_css_change_instructions}\n")
+        aggregated_instructions = "\n\n".join(instructions_parts)
+
+        final_css_result = _generate_final_main_css(
+            current_main_css_content=current_main_css_content,
+            aggregated_instructions=aggregated_instructions,
+            ui_frameworks_info=frontend_analysis.ui_frameworks_info,
+            directory_path=directory_path,
+        )
+
+        _write_file_content(str(main_css_path), final_css_result.updated_main_css_content)
+
+        logger.info("CodeActAgent completed successfully with concurrent processing")
+        logger.info(
+            f"Processed {len(extraction_results)} files and updated main CSS: {css_analysis_result.main_css_path}"
+        )
+
+        return CodeActResult(
+            processed_file_count=len(extraction_results),
+            main_css_path=str(main_css_path),
+            success=True,
+            message="CodeActAgent completed with concurrent processing and final CSS merge",
+        )
         
     except CodeActFileNotFoundError:
         logger.error(f"No frontend files found in {directory_path}")
