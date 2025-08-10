@@ -172,3 +172,6 @@ todo
 
 #cursor配置文件
 .cursor/
+
+# 工作目录
+workspace/
