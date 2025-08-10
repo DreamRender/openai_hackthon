@@ -43,21 +43,11 @@ psycopg = { extras = ["binary", "pool"], version = "^3.2.9" }
 prompt-toolkit = "^3.0.51"
 python-frontmatter = "^1.1.0"
 openai = "^1.99.6"
-
-[tool.poetry.group.modem]
-optional = true
-
-[tool.poetry.group.modem.dependencies]
 celery = "5.5.2"
 kombu = "5.5.3"
 pyopenssl = "25.0.0"
 flower = "2.0.1"
 websocket-client = "1.8.0"
-
-[tool.poetry.group.gateway]
-optional = true
-
-[tool.poetry.group.gateway.dependencies]
 fastapi = "0.115.12"
 httpx = { extras = ["socks"], version = "^0.28.1" }
 
