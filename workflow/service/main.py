@@ -5,15 +5,17 @@ Provides a centralized workflow class for orchestrating GitHub repository
 cloning and related operations.
 """
 
+from pathlib import Path
 from typing import Optional
 
 from common.utils.logger import get_logger
 from common.utils.git_utils import clone_github_repo, GitCloneError
 from workflow.service.code_analyze_agent import code_analyze_agent, PackageJsonNotFoundError, FrontendProjectAnalysis
-from workflow.service.code_init_agent import code_init_agent, DirectoryNotFoundError, PermissionError as CodeInitPermissionError
-from workflow.service.css_analyze_agent import css_analyze_agent, CssFileNotFoundError, CssAnalysisResult
+from workflow.service.code_init_agent import code_init_agent, DirectoryNotFoundError, PermissionError as CodeInitPermissionError, CodeInitResult
+from workflow.service.css_analyze_agent import css_analyze_agent, CssFileNotFoundError, CssAnalysisResult, css_theme_summary_generator, CssThemeFileNotFoundError, ThemeJsonWriteError
 from workflow.service.code_act_agent import code_act_agent, CodeActFileNotFoundError
 from workflow.service.code_run_agent import code_run_npm_install, NpmInstallError
+from workflow.service.code_file_agent import code_file_agent, FileCopyError
 
 logger = get_logger(__name__)
 
@@ -125,12 +127,15 @@ class MainWorkflow:
         logger.info("Stage 3 completed: Project analysis")
         return analysis_result
 
-    def _initialize_project(self, cloned_path: str) -> None:
+    def _initialize_project(self, cloned_path: str) -> CodeInitResult:
         """
         Stage 4: Initialize project development environment.
         
         Args:
             cloned_path: Path to the cloned repository
+            
+        Returns:
+            CodeInitResult: Project initialization results containing directory paths
             
         Raises:
             DirectoryNotFoundError: If cloned directory is not accessible
@@ -155,6 +160,7 @@ class MainWorkflow:
         logger.info(f"Design directory created: {init_result.design_directory_path}")
         logger.info(f"Themes directory created: {init_result.themes_directory_path}")
         logger.info("Stage 4 completed: Project initialization")
+        return init_result
 
     def _analyze_css(self, cloned_path: str) -> CssAnalysisResult:
         """
@@ -250,6 +256,104 @@ class MainWorkflow:
         logger.info("All project dependencies have been installed")
         logger.info("Stage 7 completed: Dependency installation")
 
+    def _backup_original_css(
+        self, 
+        cloned_path: str, 
+        css_result: CssAnalysisResult, 
+        init_result: CodeInitResult
+    ) -> None:
+        """
+        Stage 8: Backup original main CSS file to themes directory.
+        
+        Args:
+            cloned_path: Path to the cloned repository
+            css_result: CSS analysis results containing main CSS file path
+            init_result: Project initialization results containing themes directory path
+            
+        Raises:
+            FileCopyError: If CSS file copy operation fails
+            Exception: If CSS backup fails
+        """
+        logger.info("Stage 8: Backing up original main CSS file")
+        
+        # Construct source CSS file path
+        source_css_path = Path(cloned_path) / css_result.main_css_path
+        
+        # Get CSS file extension for the backup
+        css_file_extension = source_css_path.suffix
+        
+        # Construct destination path in themes directory
+        destination_css_path = Path(init_result.themes_directory_path) / f"original{css_file_extension}"
+        
+        logger.info(f"Copying main CSS file from: {source_css_path}")
+        logger.info(f"Copying main CSS file to: {destination_css_path}")
+        
+        try:
+            backup_path = code_file_agent(
+                file_path=str(source_css_path),
+                new_file_path=str(destination_css_path)
+            )
+            logger.info(f"Successfully backed up original CSS file to: {backup_path}")
+        except FileCopyError as e:
+            logger.error(f"CSS file backup failed: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error during CSS backup: {e}")
+            raise
+
+        logger.info("CSS backup completed successfully")
+        logger.info(f"Original CSS file preserved as: original{css_file_extension}")
+        logger.info("Stage 8 completed: CSS backup")
+
+    def _generate_original_theme_summary(
+        self, 
+        cloned_path: str, 
+        css_result: CssAnalysisResult, 
+        init_result: CodeInitResult
+    ) -> None:
+        """
+        Stage 9: Generate theme summary JSON for the original CSS file.
+        
+        Args:
+            cloned_path: Path to the cloned repository
+            css_result: CSS analysis results containing main CSS file path
+            init_result: Project initialization results containing themes directory path
+            
+        Raises:
+            CssThemeFileNotFoundError: If the backed up CSS file is not found
+            ThemeJsonWriteError: If JSON file writing fails
+            Exception: If theme summary generation fails
+        """
+        logger.info("Stage 9: Generating original theme summary JSON")
+        
+        # Construct backed up CSS file path
+        source_css_path = Path(cloned_path) / css_result.main_css_path
+        css_file_extension = source_css_path.suffix
+        backed_up_css_path = Path(init_result.themes_directory_path) / f"original{css_file_extension}"
+        
+        # Construct JSON output path
+        json_output_path = Path(init_result.themes_directory_path) / "original.json"
+        
+        logger.info(f"Analyzing CSS file: {backed_up_css_path}")
+        logger.info(f"Generating JSON summary to: {json_output_path}")
+        
+        try:
+            css_theme_summary_generator(
+                css_file_path=str(backed_up_css_path),
+                json_file_path=str(json_output_path)
+            )
+            logger.info("Successfully generated original theme summary JSON")
+        except (CssThemeFileNotFoundError, ThemeJsonWriteError) as e:
+            logger.error(f"Theme summary generation failed: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error during theme summary generation: {e}")
+            raise
+
+        logger.info("Original theme summary generation completed successfully")
+        logger.info(f"Theme summary saved to: {json_output_path}")
+        logger.info("Stage 9 completed: Original theme summary generation")
+
     def main(self, github_repo_url: str) -> None:
         """
         Main workflow orchestrator for complete GitHub repository processing.
@@ -263,10 +367,13 @@ class MainWorkflow:
         5. Analyzes CSS structure and identifies main CSS file
         6. Processes frontend files for color theme extraction and centralization
         7. Installs project dependencies using npm install
+        8. Backs up original main CSS file to themes directory
+        9. Generates theme summary JSON for the original CSS file
 
         This function serves as the central entry point for the automated
         repository processing workflow and handles all stages of project setup,
-        theme system implementation, and dependency installation.
+        theme system implementation, dependency installation, CSS backup, and
+        theme summary generation.
 
         Args:
             github_repo_url: GitHub repository HTTPS URL to clone and process
@@ -275,6 +382,9 @@ class MainWorkflow:
             ValueError: If the GitHub URL format is invalid
             GitCloneError: If the repository cloning fails
             NpmInstallError: If npm install operation fails
+            FileCopyError: If CSS file backup fails
+            CssThemeFileNotFoundError: If backed up CSS file is not found
+            ThemeJsonWriteError: If theme summary JSON writing fails
             Exception: If any stage fails (project must be frontend with CSS and frontend files)
         """
         logger.info("=" * 60)
@@ -287,18 +397,20 @@ class MainWorkflow:
             self._validate_input(github_repo_url)
             cloned_path = self._clone_repository(github_repo_url)
             analysis_result = self._analyze_project(cloned_path)
-            self._initialize_project(cloned_path)
+            init_result = self._initialize_project(cloned_path)
             css_result = self._analyze_css(cloned_path)
             self._process_color_theme(cloned_path, css_result, analysis_result)
             self._install_dependencies(cloned_path)
+            self._backup_original_css(cloned_path, css_result, init_result)
+            self._generate_original_theme_summary(cloned_path, css_result, init_result)
 
             # Workflow completion
             logger.info("=" * 60)
             logger.info("MAIN WORKFLOW COMPLETED SUCCESSFULLY")
-            logger.info("All stages completed: Repository processed with color theme system and dependencies installed")
+            logger.info("All stages completed: Repository processed with color theme system, dependencies installed, original CSS backed up, and theme summary generated")
             logger.info("=" * 60)
 
-        except (ValueError, GitCloneError, NpmInstallError) as e:
+        except (ValueError, GitCloneError, NpmInstallError, FileCopyError, CssThemeFileNotFoundError, ThemeJsonWriteError) as e:
             logger.error("=" * 60)
             logger.error("MAIN WORKFLOW FAILED")
             logger.error(f"Error details: {e}")
