@@ -12,6 +12,7 @@ from common.utils.git_utils import clone_github_repo, GitCloneError
 from workflow.service.code_analyze_agent import code_analyze_agent, PackageJsonNotFoundError, FrontendProjectAnalysis
 from workflow.service.code_init_agent import code_init_agent, DirectoryNotFoundError, PermissionError as CodeInitPermissionError
 from workflow.service.css_analyze_agent import css_analyze_agent, CssFileNotFoundError, CssAnalysisResult
+from workflow.service.code_act_agent import code_act_agent, CodeActFileNotFoundError
 
 logger = get_logger(__name__)
 
@@ -181,9 +182,46 @@ class MainWorkflow:
 
         logger.info("CSS analysis completed successfully")
         logger.info(f"Main CSS file identified: {css_result.main_css_path}")
-        logger.info(f"Main CSS file size: {len(css_result.main_css_content)} characters")
         logger.info("Stage 5 completed: CSS analysis")
         return css_result
+
+    def _process_color_theme(
+        self, 
+        cloned_path: str, 
+        css_result: CssAnalysisResult, 
+        analysis_result: FrontendProjectAnalysis
+    ) -> None:
+        """
+        Stage 6: Process frontend files for color theme extraction and centralization.
+        
+        Args:
+            cloned_path: Path to the cloned repository
+            css_result: CSS analysis results containing main CSS file information
+            analysis_result: Frontend project analysis results
+            
+        Raises:
+            CodeActFileNotFoundError: If no frontend files are found
+            Exception: If color theme processing fails
+        """
+        logger.info("Stage 6: Processing color theme extraction and centralization")
+        
+        try:
+            code_act_agent(
+                directory_path=cloned_path,
+                css_analysis_result=css_result,
+                frontend_analysis=analysis_result
+            )
+        except CodeActFileNotFoundError:
+            logger.error("No frontend files found for color theme processing")
+            raise Exception("Frontend projects must contain tsx/jsx/html files for theme processing")
+        except Exception as e:
+            logger.error(f"Color theme processing failed: {e}")
+            raise
+
+        logger.info("Color theme processing completed successfully")
+        logger.info("All frontend files have been processed for color centralization")
+        logger.info("CSS variables have been created and applied throughout the project")
+        logger.info("Stage 6 completed: Color theme processing")
 
     def main(self, github_repo_url: str) -> None:
         """
@@ -196,9 +234,11 @@ class MainWorkflow:
         3. Analyzes project structure and type (must be frontend)
         4. Initializes project development environment
         5. Analyzes CSS structure and identifies main CSS file
+        6. Processes frontend files for color theme extraction and centralization
 
         This function serves as the central entry point for the automated
-        repository processing workflow and handles all stages of project setup.
+        repository processing workflow and handles all stages of project setup
+        and theme system implementation.
 
         Args:
             github_repo_url: GitHub repository HTTPS URL to clone and process
@@ -206,7 +246,7 @@ class MainWorkflow:
         Raises:
             ValueError: If the GitHub URL format is invalid
             GitCloneError: If the repository cloning fails
-            Exception: If any stage fails (project must be frontend with CSS)
+            Exception: If any stage fails (project must be frontend with CSS and frontend files)
         """
         logger.info("=" * 60)
         logger.info("MAIN WORKFLOW STARTED")
@@ -220,10 +260,12 @@ class MainWorkflow:
             analysis_result = self._analyze_project(cloned_path)
             self._initialize_project(cloned_path)
             css_result = self._analyze_css(cloned_path)
+            self._process_color_theme(cloned_path, css_result, analysis_result)
 
             # Workflow completion
             logger.info("=" * 60)
             logger.info("MAIN WORKFLOW COMPLETED SUCCESSFULLY")
+            logger.info("All stages completed: Repository processed with color theme system")
             logger.info("=" * 60)
 
         except (ValueError, GitCloneError) as e:

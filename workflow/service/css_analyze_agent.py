@@ -61,16 +61,15 @@ class MainCssAnalysis(BaseModel):
 
 class CssAnalysisResult(BaseModel):
     """
-    Result model for CSS analysis containing the main CSS file path and content.
+    Result model for CSS analysis containing only the main CSS file path.
+    
+    The CSS content should be read dynamically from disk when needed,
+    not stored in memory to ensure we always have the latest version.
     """
     
     main_css_path: str = Field(
         ...,
         description="The relative path to the main CSS file from the project root"
-    )
-    main_css_content: str = Field(
-        ...,
-        description="The content of the main CSS file"
     )
 
     model_config = {
@@ -262,33 +261,20 @@ def css_analyze_agent(directory_path: str) -> CssAnalysisResult:
         main_css_analysis = MainCssAnalysis(**analysis_data)
         main_css_path = main_css_analysis.main_css_path
         
-        # Find and read the main CSS file content
-        main_css_content = ""
+        # Verify that the main CSS file exists in our scan results
+        main_css_found = False
         for relative_path, content in css_files:
             if relative_path == main_css_path:
-                main_css_content = content
+                main_css_found = True
                 break
         
-        if not main_css_content:
-            # If the exact path is not found, try to find a similar one
-            logger.warning(f"Exact path {main_css_path} not found, searching for similar paths")
-            for relative_path, content in css_files:
-                if main_css_path.endswith(relative_path) or relative_path.endswith(main_css_path):
-                    main_css_content = content
-                    main_css_path = relative_path
-                    logger.info(f"Found similar path: {relative_path}")
-                    break
-        
-        if not main_css_content:
+        if not main_css_found:
             # If still not found, raise exception - we cannot process projects without main CSS
             logger.error("Main CSS file not found after analysis and fallback attempts")
             raise Exception(f"No main CSS file could be identified in project: {directory_path}")
         
-        # Create and return the result
-        result = CssAnalysisResult(
-            main_css_path=main_css_path,
-            main_css_content=main_css_content
-        )
+        # Create and return the result (only path, content will be read dynamically)
+        result = CssAnalysisResult(main_css_path=main_css_path)
         
         logger.info(f"CSS analysis completed. Main CSS file: {result.main_css_path}")
         return result
