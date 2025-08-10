@@ -1,8 +1,0 @@
-## 用户信息: {{ user.name or 'N/A' }}
-
-**用户名**: @{{ user.username or 'N/A' }}
-**用户ID**: {{ user.id or 'N/A' }}
-**简介**: {{ user.description or '无简介' }}
-
-### 统计数据
-- **关注者**: {% if user.followers_count %}{{ "{:,}".format(user.followers_count) }}人{% else %}N/A{% endif %}
