@@ -8,6 +8,10 @@ error fixing using OpenAI LLM integration.
 import json
 import os
 import subprocess
+import threading
+import time
+import signal
+import psutil
 from pathlib import Path
 from typing import List, Optional
 
@@ -75,6 +79,24 @@ class BuildMaxIterationsError(Exception):
         super().__init__(f"Build fix exceeded maximum iterations: {max_iterations}")
 
 
+class PortKillError(Exception):
+    """Exception raised when killing process on port fails."""
+    
+    def __init__(self, port: int, error_message: str):
+        self.port = port
+        self.error_message = error_message
+        super().__init__(f"Failed to kill process on port {port}: {error_message}")
+
+
+class DevServerStartError(Exception):
+    """Exception raised when development server fails to start."""
+    
+    def __init__(self, command: str, error_message: str):
+        self.command = command
+        self.error_message = error_message
+        super().__init__(f"Development server failed to start with command '{command}': {error_message}")
+
+
 class BuildErrorFileExtraction(BaseModel):
     """
     Pydantic model for build error file extraction results.
@@ -113,6 +135,29 @@ class BuildErrorFix(BaseModel):
     }
 
 
+class DevServerInfo(BaseModel):
+    """
+    Pydantic model for development server information.
+    
+    This model defines the structure containing development server
+    hostname and port information after starting the server.
+    """
+    
+    hostname: str = Field(
+        ...,
+        description="The hostname where the development server is running"
+    )
+    port: int = Field(
+        ...,
+        description="The port number where the development server is running"
+    )
+
+    model_config = {
+        "validate_assignment": True,
+        "extra": "forbid"
+    }
+
+
 def _run_command(command: str, directory_path: str) -> tuple[bool, str, str]:
     """
     Execute a shell command in the specified directory.
@@ -140,6 +185,80 @@ def _run_command(command: str, directory_path: str) -> tuple[bool, str, str]:
     except Exception as e:
         logger.error(f"Command execution error: {e}")
         return False, "", str(e)
+
+
+def _check_port_occupied(port: int) -> bool:
+    """
+    Check if a port is currently occupied.
+    
+    Args:
+        port: Port number to check
+        
+    Returns:
+        True if port is occupied, False otherwise
+    """
+    try:
+        connections = psutil.net_connections(kind='inet')
+        for conn in connections:
+            if conn.laddr.port == port and conn.status == psutil.CONN_LISTEN:
+                return True
+        return False
+    except Exception as e:
+        logger.warning(f"Error checking port {port}: {e}")
+        return False
+
+
+def _kill_process_on_port(port: int) -> None:
+    """
+    Kill all processes listening on the specified port.
+    
+    Args:
+        port: Port number to free up
+        
+    Raises:
+        PortKillError: If unable to kill processes on the port
+    """
+    logger.info(f"Attempting to kill processes on port {port}")
+    
+    try:
+        killed_processes = []
+        connections = psutil.net_connections(kind='inet')
+        
+        for conn in connections:
+            if conn.laddr.port == port and conn.status == psutil.CONN_LISTEN:
+                try:
+                    process = psutil.Process(conn.pid)
+                    process_info = f"PID {conn.pid} ({process.name()})"
+                    logger.info(f"Killing process {process_info} on port {port}")
+                    
+                    # Try graceful termination first
+                    process.terminate()
+                    
+                    # Wait up to 5 seconds for graceful termination
+                    try:
+                        process.wait(timeout=5)
+                        killed_processes.append(process_info)
+                        logger.info(f"Successfully terminated process {process_info}")
+                    except psutil.TimeoutExpired:
+                        # Force kill if graceful termination fails
+                        logger.warning(f"Force killing process {process_info}")
+                        process.kill()
+                        process.wait(timeout=3)
+                        killed_processes.append(f"{process_info} (force killed)")
+                        logger.info(f"Successfully force killed process {process_info}")
+                        
+                except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                    logger.warning(f"Could not kill process {conn.pid}: {e}")
+                    continue
+        
+        if killed_processes:
+            logger.info(f"Killed {len(killed_processes)} processes on port {port}: {', '.join(killed_processes)}")
+        else:
+            logger.info(f"No processes found listening on port {port}")
+            
+    except Exception as e:
+        logger.error(f"Error killing processes on port {port}: {e}")
+        raise PortKillError(port, str(e))
 
 
 def _extract_error_files(build_output: str) -> List[str]:
@@ -535,3 +654,151 @@ def code_run_build_with_fix(
     except Exception as e:
         logger.error(f"Error during build with fix operation: {e}")
         raise Exception(f"Build with fix operation failed: {e}")
+
+
+def code_run_start_dev_server(
+    start_command: str,
+    directory_path: str,
+    hostname: str = "0.0.0.0",
+    port: int = 3000
+) -> DevServerInfo:
+    """
+    Start the frontend development server in a separate thread.
+    
+    This function checks if the specified port is occupied and kills any processes
+    using it before starting the development server. The server runs in a separate
+    thread to avoid blocking the main thread.
+    
+    Args:
+        start_command: Command to start the development server (from FrontendProjectAnalysis)
+        directory_path: Path to the frontend project directory
+        hostname: Hostname to bind the server to (default: "0.0.0.0")
+        port: Port number to use for the server (default: 3000)
+        
+    Returns:
+        DevServerInfo: Information about the running server (hostname and port)
+        
+    Raises:
+        PortKillError: If unable to kill existing processes on the port
+        DevServerStartError: If the development server fails to start
+        Exception: For other errors during the operation
+    """
+    logger.info(f"Starting development server in directory: {directory_path}")
+    logger.info(f"Command: {start_command}")
+    logger.info(f"Target address: {hostname}:{port}")
+    
+    # Convert to Path object for easier manipulation
+    dir_path = Path(directory_path)
+    
+    # Check if directory exists
+    if not dir_path.exists():
+        logger.error(f"Directory does not exist: {directory_path}")
+        raise Exception(f"Directory not found: {directory_path}")
+    
+    # Check if start command is provided
+    if not start_command or not start_command.strip():
+        logger.error("Start command is required and cannot be empty")
+        raise Exception("Start command is required")
+    
+    try:
+        # Step 1: Check if port is occupied and kill processes if needed
+        if _check_port_occupied(port):
+            logger.warning(f"Port {port} is occupied, killing existing processes")
+            _kill_process_on_port(port)
+            
+            # Wait a moment for processes to fully terminate
+            time.sleep(2)
+            
+            # Verify port is now free
+            if _check_port_occupied(port):
+                logger.error(f"Port {port} is still occupied after killing processes")
+                raise PortKillError(port, "Port remains occupied after termination attempt")
+        else:
+            logger.info(f"Port {port} is available")
+        
+        # Step 2: Prepare environment variables for the server
+        server_env = os.environ.copy()
+        server_env['HOST'] = hostname
+        server_env['PORT'] = str(port)
+        
+        # Step 3: Start the development server in a separate thread
+        def run_server():
+            """Function to run the development server in a separate thread."""
+            try:
+                logger.info(f"Starting server thread with command: {start_command}")
+                
+                # Run the start command
+                process = subprocess.Popen(
+                    start_command,
+                    shell=True,
+                    cwd=str(dir_path),
+                    env=server_env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True
+                )
+                
+                # Log server output in real-time
+                logger.info(f"Development server process started with PID: {process.pid}")
+                
+                # Read output in a non-blocking way
+                while True:
+                    output = process.stdout.readline()
+                    if output:
+                        logger.info(f"Server output: {output.strip()}")
+                    
+                    error = process.stderr.readline()
+                    if error:
+                        logger.warning(f"Server error: {error.strip()}")
+                    
+                    # Check if process has terminated
+                    if process.poll() is not None:
+                        break
+                        
+                    time.sleep(0.1)
+                
+                # Process has terminated, log final status
+                return_code = process.poll()
+                if return_code != 0:
+                    logger.error(f"Development server exited with code: {return_code}")
+                else:
+                    logger.info("Development server exited normally")
+                    
+            except Exception as e:
+                logger.error(f"Error in server thread: {e}")
+        
+        # Start the server thread
+        server_thread = threading.Thread(target=run_server, daemon=True)
+        server_thread.start()
+        
+        # Wait a moment for the server to start up
+        time.sleep(3)
+        
+        # Verify the server is running by checking if port is now occupied
+        max_startup_wait = 10  # Wait up to 10 seconds for server to start
+        startup_wait = 0
+        
+        while startup_wait < max_startup_wait:
+            if _check_port_occupied(port):
+                logger.info(f"Development server successfully started on {hostname}:{port}")
+                break
+            time.sleep(1)
+            startup_wait += 1
+        else:
+            logger.error(f"Development server failed to start within {max_startup_wait} seconds")
+            raise DevServerStartError(start_command, f"Server did not start listening on port {port} within {max_startup_wait} seconds")
+        
+        # Return server information
+        result = DevServerInfo(hostname=hostname, port=port)
+        logger.info(f"Development server is running at http://{hostname}:{port}")
+        logger.info("Server thread is running in background (daemon mode)")
+        
+        return result
+        
+    except (PortKillError, DevServerStartError):
+        raise
+    except Exception as e:
+        logger.error(f"Error starting development server: {e}")
+        raise Exception(f"Development server startup failed: {e}")

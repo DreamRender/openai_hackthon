@@ -21,6 +21,10 @@ from workflow.service.code_run_agent import (
     NpmInstallError,
     code_run_build_with_fix,
     BuildMaxIterationsError,
+    code_run_start_dev_server,
+    DevServerStartError,
+    PortKillError,
+    DevServerInfo,
 )
 from workflow.service.code_file_agent import code_file_agent, FileCopyError
 from workflow.service.css_generator_agent import css_generator_agent, CssFileReadError, ThemesDirectoryError, ThemeGenerationError
@@ -447,6 +451,62 @@ class MainWorkflow:
         logger.info("5 new color theme variations have been created")
         logger.info("Stage 11 completed: Additional theme generation")
 
+    def _start_development_server(
+        self,
+        cloned_path: str,
+        analysis_result: FrontendProjectAnalysis,
+        hostname: str = "0.0.0.0",
+        port: int = 3000
+    ) -> DevServerInfo:
+        """
+        Stage 12: Start the frontend development server in background.
+
+        Args:
+            cloned_path: Path to the cloned repository
+            analysis_result: Frontend project analysis results containing start command
+            hostname: Hostname to bind the server to (default: "0.0.0.0")
+            port: Port number to use for the server (default: 3000)
+
+        Returns:
+            DevServerInfo: Information about the running server (hostname and port)
+
+        Raises:
+            PortKillError: If unable to kill existing processes on the port
+            DevServerStartError: If the development server fails to start
+            Exception: If development server startup fails or no start command available
+        """
+        logger.info("Stage 12: Starting frontend development server")
+
+        # Check if start command is available
+        if not analysis_result.start_command:
+            logger.error("No start command found in frontend analysis")
+            raise Exception("No start command available for this project")
+
+        logger.info(f"Using start command: {analysis_result.start_command}")
+        logger.info(f"Server will be started at {hostname}:{port}")
+
+        try:
+            server_info = code_run_start_dev_server(
+                start_command=analysis_result.start_command,
+                directory_path=cloned_path,
+                hostname=hostname,
+                port=port
+            )
+
+            logger.info("Development server started successfully")
+            logger.info(f"Server is running at http://{server_info.hostname}:{server_info.port}")
+            logger.info("Server is running in background thread (daemon mode)")
+            logger.info("Stage 12 completed: Development server startup")
+
+            return server_info
+
+        except (PortKillError, DevServerStartError) as e:
+            logger.error(f"Development server startup failed: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error during development server startup: {e}")
+            raise
+
     def main(self, github_repo_url: str) -> None:
         """
         Main workflow orchestrator for complete GitHub repository processing.
@@ -464,11 +524,12 @@ class MainWorkflow:
         9. Backs up original main CSS file to themes directory
         10. Generates theme summary JSON for the original CSS file
         11. Generates 5 additional color theme variations
+        12. Starts the frontend development server in background
 
         This function serves as the central entry point for the automated
         repository processing workflow and handles all stages of project setup,
         theme system implementation, dependency installation, CSS backup,
-        theme summary generation, and additional theme creation.
+        theme summary generation, additional theme creation, and development server startup.
 
         Args:
             github_repo_url: GitHub repository HTTPS URL to clone and process
@@ -477,12 +538,15 @@ class MainWorkflow:
             ValueError: If the GitHub URL format is invalid
             GitCloneError: If the repository cloning fails
             NpmInstallError: If npm install operation fails
+            BuildMaxIterationsError: If build fix iterations exceed maximum limit
             FileCopyError: If CSS file backup fails
             CssThemeFileNotFoundError: If backed up CSS file is not found
             ThemeJsonWriteError: If theme summary JSON writing fails
             CssFileReadError: If original CSS file cannot be read for theme generation
             ThemesDirectoryError: If themes directory operations fail
             ThemeGenerationError: If additional theme generation fails
+            PortKillError: If unable to kill existing processes on the port
+            DevServerStartError: If the development server fails to start
             Exception: If any stage fails (project must be frontend with CSS and frontend files)
         """
         logger.info("=" * 60)
@@ -505,14 +569,16 @@ class MainWorkflow:
             self._generate_original_theme_summary(
                 backed_up_css_path, init_result)
             self._generate_additional_themes(backed_up_css_path, init_result)
+            server_info = self._start_development_server(cloned_path, analysis_result)
 
             # Workflow completion
             logger.info("=" * 60)
             logger.info("MAIN WORKFLOW COMPLETED SUCCESSFULLY")
-            logger.info("All stages completed: Repository processed with color theme system, dependencies installed, original CSS backed up, theme summary generated, and additional themes created")
+            logger.info("All stages completed: Repository processed with color theme system, dependencies installed, original CSS backed up, theme summary generated, additional themes created, and development server started")
+            logger.info(f"Development server is running at http://{server_info.hostname}:{server_info.port}")
             logger.info("=" * 60)
 
-        except (ValueError, GitCloneError, NpmInstallError, BuildMaxIterationsError, FileCopyError, CssThemeFileNotFoundError, ThemeJsonWriteError, CssFileReadError, ThemesDirectoryError, ThemeGenerationError) as e:
+        except (ValueError, GitCloneError, NpmInstallError, BuildMaxIterationsError, FileCopyError, CssThemeFileNotFoundError, ThemeJsonWriteError, CssFileReadError, ThemesDirectoryError, ThemeGenerationError, PortKillError, DevServerStartError) as e:
             logger.error("=" * 60)
             logger.error("MAIN WORKFLOW FAILED")
             logger.error(f"Error details: {e}")

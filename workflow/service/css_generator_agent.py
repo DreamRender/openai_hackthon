@@ -22,12 +22,6 @@ from common.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Default paths for standalone execution
-DEFAULT_THEMES_DIRECTORY_PATH = \
-    "/workspace/ui-agent/workspace/openai_hackthon_nextjs_test_1-3d173a/.design/themes"
-DEFAULT_ORIGINAL_CSS_FILE_PATH = \
-    "/workspace/ui-agent/workspace/openai_hackthon_nextjs_test_1-3d173a/.design/themes/original.css"
-
 # Prompts for OpenAI CSS theme generation (single-theme concurrent mode)
 SINGLE_THEME_GENERATION_PROMPT = """
 You are a CSS theme design expert. Generate ONE new color theme variation based on an original CSS file and existing theme information.
@@ -573,15 +567,13 @@ Examples:
     parser.add_argument(
         "--themes-dir", "-t",
         type=str,
-        default=DEFAULT_THEMES_DIRECTORY_PATH,
-        help=f"Path to the themes directory where JSON and CSS files are stored (default: {DEFAULT_THEMES_DIRECTORY_PATH})"
+        help=f"Path to the themes directory where JSON and CSS files are stored"
     )
     
     parser.add_argument(
         "--original-css", "-o",
         type=str,
-        default=DEFAULT_ORIGINAL_CSS_FILE_PATH,
-        help=f"Path to the original CSS file to base variations on (default: {DEFAULT_ORIGINAL_CSS_FILE_PATH})"
+        help=f"Path to the original CSS file to base variations on"
     )
     
     return parser.parse_args()

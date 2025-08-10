@@ -50,6 +50,7 @@ flower = "2.0.1"
 websocket-client = "1.8.0"
 fastapi = "0.115.12"
 httpx = { extras = ["socks"], version = "^0.28.1" }
+psutil = "^7.0.0"
 
 
 [tool.poetry.group.dev.dependencies]
