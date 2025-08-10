@@ -5,8 +5,10 @@ Provides functionality for generating new CSS color themes based on existing
 CSS files and theme information using OpenAI LLM integration.
 """
 
+import argparse
 import json
 import os
+import sys
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -18,6 +20,12 @@ from common.utils.logger import get_logger
 
 
 logger = get_logger(__name__)
+
+# Default paths for standalone execution
+DEFAULT_THEMES_DIRECTORY_PATH = \
+    "/workspace/ui-agent/workspace/openai_hackthon_nextjs_test_1-3d173a/.design/themes"
+DEFAULT_ORIGINAL_CSS_FILE_PATH = \
+    "/workspace/ui-agent/workspace/openai_hackthon_nextjs_test_1-3d173a/.design/themes/original.css"
 
 # Prompt for OpenAI CSS theme generation
 CSS_THEME_GENERATION_PROMPT = """
@@ -498,3 +506,123 @@ def css_generator_agent(
     except Exception as e:
         logger.error(f"Unexpected error during CSS theme generation: {e}")
         raise Exception(f"CSS theme generation failed: {e}")
+
+
+def _parse_arguments() -> argparse.Namespace:
+    """
+    Parse command line arguments for CSS theme generator.
+    
+    Returns:
+        Parsed arguments namespace containing themes_directory and original_css_file
+        
+    Raises:
+        SystemExit: If argument parsing fails or help is requested
+    """
+    parser = argparse.ArgumentParser(
+        description="Generate multiple color theme variations based on an original CSS file",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python -m workflow.service.css_generator_agent --themes-dir /path/to/themes --original-css /path/to/original.css
+  python -m workflow.service.css_generator_agent -t ./themes -o ./styles/main.css
+        """
+    )
+    
+    parser.add_argument(
+        "--themes-dir", "-t",
+        type=str,
+        default=DEFAULT_THEMES_DIRECTORY_PATH,
+        help=f"Path to the themes directory where JSON and CSS files are stored (default: {DEFAULT_THEMES_DIRECTORY_PATH})"
+    )
+    
+    parser.add_argument(
+        "--original-css", "-o",
+        type=str,
+        default=DEFAULT_ORIGINAL_CSS_FILE_PATH,
+        help=f"Path to the original CSS file to base variations on (default: {DEFAULT_ORIGINAL_CSS_FILE_PATH})"
+    )
+    
+    return parser.parse_args()
+
+
+def _validate_arguments(args: argparse.Namespace) -> None:
+    """
+    Validate command line arguments.
+    
+    Args:
+        args: Parsed command line arguments
+        
+    Raises:
+        SystemExit: If validation fails
+    """
+    # Validate themes directory path
+    if not args.themes_dir:
+        logger.error("Themes directory path cannot be empty")
+        sys.exit(1)
+    
+    # Validate original CSS file path
+    if not args.original_css:
+        logger.error("Original CSS file path cannot be empty")
+        sys.exit(1)
+    
+    # Check if original CSS file exists
+    css_file = Path(args.original_css)
+    if not css_file.exists():
+        logger.error(f"Original CSS file does not exist: {args.original_css}")
+        sys.exit(1)
+    
+    if not css_file.is_file():
+        logger.error(f"Original CSS path is not a file: {args.original_css}")
+        sys.exit(1)
+    
+    logger.info(f"Arguments validated successfully")
+    logger.info(f"Themes directory: {args.themes_dir}")
+    logger.info(f"Original CSS file: {args.original_css}")
+
+
+def main() -> None:
+    """
+    Standalone entry point to generate additional CSS color themes.
+
+    This function parses command line arguments to get the themes directory
+    and original CSS file paths, then invokes css_generator_agent to
+    generate five new and unique color theme variations.
+
+    Command line arguments:
+        --themes-dir, -t: Path to the themes directory (optional, has default)
+        --original-css, -o: Path to the original CSS file (optional, has default)
+
+    Raises:
+        CssFileReadError: If the original CSS file cannot be read
+        ThemesDirectoryError: If themes directory operations fail
+        ThemeGenerationError: If theme generation fails
+        SystemExit: If argument parsing or validation fails
+        Exception: For other unexpected errors during the process
+    """
+    logger.info("Standalone CSS theme generator started")
+
+    try:
+        # Parse and validate command line arguments
+        args = _parse_arguments()
+        _validate_arguments(args)
+        
+        # Run CSS theme generation with parsed arguments
+        css_generator_agent(
+            themes_directory_path=args.themes_dir,
+            original_css_file_path=args.original_css
+        )
+        logger.info("Standalone CSS theme generator finished successfully")
+        
+    except (CssFileReadError, ThemesDirectoryError, ThemeGenerationError) as e:
+        logger.error(f"CSS theme generation failed: {e}")
+        sys.exit(1)
+    except SystemExit:
+        # Re-raise SystemExit (from argparse or validation)
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
