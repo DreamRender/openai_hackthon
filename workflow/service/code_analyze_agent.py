@@ -24,9 +24,10 @@ Response requirements:
 1. is_frontend_project: true if this is a frontend project, false otherwise
 2. start_command: If it's a frontend project, provide the start command (usually from scripts section like "npm start", "npm run dev", etc.). If not a frontend project, return empty string "".
 3. build_command: If it's a frontend project, provide the build command (usually from scripts section like "npm run build", "yarn build", etc.). If not a frontend project, return empty string "".
-4. ui_frameworks_info: If it's a frontend project, provide information about UI frameworks, libraries, TailwindCSS and their versions. If not a frontend project, return empty string "".
+4. eslint_fix_command: If the project has ESLint configured, provide the ESLint fix command (usually from scripts section like "npm run lint:fix", "yarn lint --fix", "eslint . --fix", etc.). If no ESLint fix command is found, return empty string "".
+5. ui_frameworks_info: If it's a frontend project, provide information about UI frameworks, libraries, TailwindCSS and their versions. If not a frontend project, return empty string "".
 
-Always return all four fields, using empty strings for start_command, build_command and ui_frameworks_info when the project is not a frontend project.
+Always return all five fields, using empty strings for start_command, build_command, eslint_fix_command and ui_frameworks_info when not applicable.
 """
 
 
@@ -58,6 +59,10 @@ class FrontendProjectAnalysis(BaseModel):
         ...,
         description="The command to build the project (from package.json scripts), empty string if not applicable"
     )
+    eslint_fix_command: str = Field(
+        ...,
+        description="The ESLint fix command (from package.json scripts), empty string if not applicable"
+    )
     ui_frameworks_info: str = Field(
         ...,
         description="Information about UI frameworks, libraries, TailwindCSS and their versions, empty string if not applicable"
@@ -85,6 +90,7 @@ def code_analyze_agent(directory_path: str) -> FrontendProjectAnalysis:
             - is_frontend_project: Boolean indicating if it's a frontend project
             - start_command: Command to start the project (if frontend)
             - build_command: Command to build the project (if frontend)
+            - eslint_fix_command: ESLint fix command (if available)
             - ui_frameworks_info: Information about UI frameworks and versions (if frontend)
             
     Raises:
@@ -137,12 +143,16 @@ def code_analyze_agent(directory_path: str) -> FrontendProjectAnalysis:
                     "type": "string",
                     "description": "The command to build the project, empty string if not applicable"
                 },
+                "eslint_fix_command": {
+                    "type": "string",
+                    "description": "The ESLint fix command, empty string if not applicable"
+                },
                 "ui_frameworks_info": {
                     "type": "string",
                     "description": "Information about UI frameworks, libraries, TailwindCSS and their versions, empty string if not applicable"
                 }
             },
-            "required": ["is_frontend_project", "start_command", "build_command", "ui_frameworks_info"],
+            "required": ["is_frontend_project", "start_command", "build_command", "eslint_fix_command", "ui_frameworks_info"],
             "additionalProperties": False
         }
         

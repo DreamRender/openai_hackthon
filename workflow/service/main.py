@@ -41,7 +41,7 @@ class MainWorkflow:
         This is the primary workflow function that orchestrates the complete
         processing pipeline for a GitHub repository:
         1. Clones the repository to workspace
-        2. Analyzes project structure and type
+        2. Analyzes project structure and type (including ESLint configuration)
         3. Initializes project development environment
         
         This function serves as the central entry point for the automated
@@ -92,6 +92,8 @@ class MainWorkflow:
                         logger.info(f"Start command identified: {analysis_result.start_command}")
                     if analysis_result.build_command:
                         logger.info(f"Build command identified: {analysis_result.build_command}")
+                    if analysis_result.eslint_fix_command:
+                        logger.info(f"ESLint fix command identified: {analysis_result.eslint_fix_command}")
                     if analysis_result.ui_frameworks_info:
                         logger.info(f"UI frameworks detected: {analysis_result.ui_frameworks_info}")
                 else:
