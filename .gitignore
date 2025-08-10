@@ -1,0 +1,174 @@
+### Python ###
+# Python字节码文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Python开发工具
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+cython_debug/
+
+# Python虚拟环境
+venv*/
+.venv*/
+env/
+ENV/
+
+/fake_data
+/daytona
+
+# Python包分发/打包
+dist/
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+### Flask ###
+# Flask实例文件夹
+instance/
+
+# Flask缓存
+.webassets-cache
+
+# Flask环境变量文件
+.flaskenv
+
+### IDE ###
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm/IntelliJ
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Cursor
+.cursor/
+
+# Claude IDE
+.claude/
+
+### 系统文件 ###
+# Mac OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+### 项目特定 ###
+# 日志文件
+/log/
+*.log
+
+# 本地历史记录
+.history
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 本地配置文件
+config.local.py
+settings.local.py
+
+# 测试覆盖率报告
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+htmlcov/
+.hypothesis/
+
+# pytest
+.pytest_cache/
+.cache
+
+# 其他
+.python-version
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# 备份文件
+*~
+*.bak
+*.backup
+*.orig
+*.rej
+*.swp
+*.swo
+
+# 临时文件
+*.tmp
+*.temp
+*.pid
+*.seed
+*.pid.lock
+
+# 运行时数据
+pids/
+*.pid.lock
+
+# 安全敏感文件
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+!resource/cert/*.crt.pem
+
+# 压缩文件
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.gz
+
+# 本地开发配置
+local_settings.py
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 环境变量文件
+.env
+.env.*
+!.env.template
+!.env.example
+!.env.sample
+**/.env.local
+
+# IDE开发Todo文件夹
+todo
+
+#cursor配置文件
+.cursor/

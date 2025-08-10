@@ -1,0 +1,45 @@
+# 推文内容
+
+{% if tweet.retweeted_tweet -%}
+**原文ID**: {{ tweet.retweeted_tweet.id }}
+**作者**: {{ tweet.retweeted_tweet.author.name or '未知作者' }} (@{{ tweet.retweeted_tweet.author.username or 'unknown' }})
+**时间**: {{ tweet.retweeted_tweet.created_at or tweet.created_at }}
+**内容**: {{ tweet.retweeted_tweet.text }}
+{% if (tweet.retweeted_tweet.extended_entities and tweet.retweeted_tweet.extended_entities.get('media')) or tweet.retweeted_tweet.card -%}
+**多媒体**: 包含多媒体内容，内容已隐藏
+{% endif -%}
+*（由 {{ tweet.author.name or '未知用户' }} 转发，转发ID: {{ tweet.id }}）*
+{% elif tweet.quoted_tweet -%}
+**推文ID**: {{ tweet.id }}
+**作者**: {{ tweet.author.name or '未知作者' }} (@{{ tweet.author.username or 'unknown' }})
+**时间**: {{ tweet.created_at }}
+**内容**: {{ tweet.text }}
+{% if (tweet.extended_entities and tweet.extended_entities.get('media')) or tweet.card -%}
+**多媒体**: 包含多媒体内容，内容已隐藏
+{% endif -%}
+
+**引用内容** (ID: {{ tweet.quoted_tweet.id }}):
+> 作者: {{ tweet.quoted_tweet.author.name or '未知作者' }} (@{{ tweet.quoted_tweet.author.username or 'unknown' }})
+> 内容: {{ tweet.quoted_tweet.text }}
+{% if (tweet.quoted_tweet.extended_entities and tweet.quoted_tweet.extended_entities.get('media')) or tweet.quoted_tweet.card -%}
+> 多媒体: 包含多媒体内容，内容已隐藏
+{% endif -%}
+{% else -%}
+**推文ID**: {{ tweet.id }}
+**作者**: {{ tweet.author.name or '未知作者' }} (@{{ tweet.author.username or 'unknown' }})
+**时间**: {{ tweet.created_at }}
+**内容**: {{ tweet.text }}
+{% if (tweet.extended_entities and tweet.extended_entities.get('media')) or tweet.card -%}
+**多媒体**: 包含多媒体内容，内容已隐藏
+{% endif -%}
+{% endif -%}
+
+{% if tweet.is_reply and tweet.in_reply_to_username -%}
+*（这是对 @{{ tweet.in_reply_to_username }} 的回复，回复推文ID: {{ tweet.in_reply_to_id }}）*
+{% endif -%}
+
+{% if tweet.entities and (tweet.entities.hashtags or tweet.entities.user_mentions) -%}
+**相关标签**: {% if tweet.entities.hashtags -%}{% for hashtag in tweet.entities.hashtags %}#{{ hashtag.text }}{% if not loop.last %} {% endif %}{% endfor %}{% endif %}{% if tweet.entities.hashtags and tweet.entities.user_mentions %} | {% endif %}{% if tweet.entities.user_mentions -%}提及: {% for mention in tweet.entities.user_mentions %}@{{ mention.screen_name }}{% if not loop.last %} {% endif %}{% endfor %}{% endif %}
+{% endif -%}
+
+---
