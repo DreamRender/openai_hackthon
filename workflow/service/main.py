@@ -13,6 +13,7 @@ from workflow.service.code_analyze_agent import code_analyze_agent, PackageJsonN
 from workflow.service.code_init_agent import code_init_agent, DirectoryNotFoundError, PermissionError as CodeInitPermissionError
 from workflow.service.css_analyze_agent import css_analyze_agent, CssFileNotFoundError, CssAnalysisResult
 from workflow.service.code_act_agent import code_act_agent, CodeActFileNotFoundError
+from workflow.service.code_run_agent import code_run_npm_install, NpmInstallError
 
 logger = get_logger(__name__)
 
@@ -223,6 +224,32 @@ class MainWorkflow:
         logger.info("CSS variables have been created and applied throughout the project")
         logger.info("Stage 6 completed: Color theme processing")
 
+    def _install_dependencies(self, cloned_path: str) -> None:
+        """
+        Stage 7: Install project dependencies using npm install.
+        
+        Args:
+            cloned_path: Path to the cloned repository
+            
+        Raises:
+            NpmInstallError: If npm install operation fails
+            Exception: If dependency installation fails
+        """
+        logger.info("Stage 7: Installing project dependencies")
+        
+        try:
+            code_run_npm_install(cloned_path)
+        except NpmInstallError as e:
+            logger.error(f"npm install failed: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error during dependency installation: {e}")
+            raise
+
+        logger.info("Dependency installation completed successfully")
+        logger.info("All project dependencies have been installed")
+        logger.info("Stage 7 completed: Dependency installation")
+
     def main(self, github_repo_url: str) -> None:
         """
         Main workflow orchestrator for complete GitHub repository processing.
@@ -235,10 +262,11 @@ class MainWorkflow:
         4. Initializes project development environment
         5. Analyzes CSS structure and identifies main CSS file
         6. Processes frontend files for color theme extraction and centralization
+        7. Installs project dependencies using npm install
 
         This function serves as the central entry point for the automated
-        repository processing workflow and handles all stages of project setup
-        and theme system implementation.
+        repository processing workflow and handles all stages of project setup,
+        theme system implementation, and dependency installation.
 
         Args:
             github_repo_url: GitHub repository HTTPS URL to clone and process
@@ -246,6 +274,7 @@ class MainWorkflow:
         Raises:
             ValueError: If the GitHub URL format is invalid
             GitCloneError: If the repository cloning fails
+            NpmInstallError: If npm install operation fails
             Exception: If any stage fails (project must be frontend with CSS and frontend files)
         """
         logger.info("=" * 60)
@@ -261,14 +290,15 @@ class MainWorkflow:
             self._initialize_project(cloned_path)
             css_result = self._analyze_css(cloned_path)
             self._process_color_theme(cloned_path, css_result, analysis_result)
+            self._install_dependencies(cloned_path)
 
             # Workflow completion
             logger.info("=" * 60)
             logger.info("MAIN WORKFLOW COMPLETED SUCCESSFULLY")
-            logger.info("All stages completed: Repository processed with color theme system")
+            logger.info("All stages completed: Repository processed with color theme system and dependencies installed")
             logger.info("=" * 60)
 
-        except (ValueError, GitCloneError) as e:
+        except (ValueError, GitCloneError, NpmInstallError) as e:
             logger.error("=" * 60)
             logger.error("MAIN WORKFLOW FAILED")
             logger.error(f"Error details: {e}")
